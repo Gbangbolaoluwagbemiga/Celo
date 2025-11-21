@@ -194,74 +194,49 @@ export function ProjectDetailsStep({
           </div>
 
           {!formData.useNativeToken && (
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="tokenSelect">Select Whitelisted Token</Label>
-                <Select
-                  value={formData.token}
-                  onValueChange={(value) => onUpdate({ token: value })}
-                >
-                  <SelectTrigger id="tokenSelect">
-                    <SelectValue placeholder="Choose a whitelisted token..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {whitelistedTokens.length > 0 ? (
-                      whitelistedTokens.map((token) => (
-                        <SelectItem key={token.address} value={token.address}>
-                          {token.name ||
-                            `${token.address.slice(
-                              0,
-                              6
-                            )}...${token.address.slice(-4)}`}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value="loading" disabled>
-                        Loading tokens...
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Select from pre-approved tokens
-                </p>
-              </div>
-
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background px-2 text-muted-foreground">
-                    Or enter manually
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="tokenAddress">Custom Token Address</Label>
-                <Input
-                  id="tokenAddress"
-                  value={formData.token}
-                  onChange={(e) => onUpdate({ token: e.target.value })}
-                  placeholder="0x..."
-                  pattern="^0x[a-fA-F0-9]{40}$"
+            <div>
+              <Label htmlFor="tokenSelect">Select Token *</Label>
+              <Select
+                value={formData.token}
+                onValueChange={(value) => onUpdate({ token: value })}
+              >
+                <SelectTrigger
+                  id="tokenSelect"
                   className={
                     errors.tokenAddress
                       ? "border-red-500 focus:border-red-500"
                       : ""
                   }
-                />
-                {errors.tokenAddress ? (
-                  <p className="text-red-500 text-sm mt-1">
-                    {errors.tokenAddress}
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Enter a custom ERC20 token address (must be whitelisted)
-                  </p>
-                )}
-              </div>
+                >
+                  <SelectValue placeholder="Choose a whitelisted token..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {whitelistedTokens.length > 0 ? (
+                    whitelistedTokens.map((token) => (
+                      <SelectItem key={token.address} value={token.address}>
+                        {token.name ||
+                          `${token.address.slice(0, 6)}...${token.address.slice(
+                            -4
+                          )}`}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="loading" disabled>
+                      Loading tokens...
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {errors.tokenAddress ? (
+                <p className="text-red-500 text-sm mt-1">
+                  {errors.tokenAddress}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Only tokens whitelisted by admin are available. Contact admin
+                  to add more tokens.
+                </p>
+              )}
             </div>
           )}
 
