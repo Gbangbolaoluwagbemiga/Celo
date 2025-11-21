@@ -7,6 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface ProjectDetailsStepProps {
   formData: {
@@ -21,6 +28,7 @@ interface ProjectDetailsStepProps {
   };
   onUpdate: (data: Partial<ProjectDetailsStepProps["formData"]>) => void;
   isContractPaused: boolean;
+  whitelistedTokens?: { address: string; name?: string }[];
   errors?: {
     projectTitle?: string;
     projectDescription?: string;
@@ -35,6 +43,7 @@ export function ProjectDetailsStep({
   formData,
   onUpdate,
   isContractPaused,
+  whitelistedTokens = [],
   errors = {},
 }: ProjectDetailsStepProps) {
   return (
@@ -185,31 +194,74 @@ export function ProjectDetailsStep({
           </div>
 
           {!formData.useNativeToken && (
-            <div>
-              <Label htmlFor="tokenAddress">Token Address *</Label>
-              <Input
-                id="tokenAddress"
-                value={formData.token}
-                onChange={(e) => onUpdate({ token: e.target.value })}
-                placeholder="0x..."
-                required={!formData.useNativeToken}
-                pattern="^0x[a-fA-F0-9]{40}$"
-                className={
-                  errors.tokenAddress
-                    ? "border-red-500 focus:border-red-500"
-                    : ""
-                }
-              />
-              {errors.tokenAddress ? (
-                <p className="text-red-500 text-sm mt-1">
-                  {errors.tokenAddress}
-                </p>
-              ) : (
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="tokenSelect">Select Whitelisted Token</Label>
+                <Select
+                  value={formData.token}
+                  onValueChange={(value) => onUpdate({ token: value })}
+                >
+                  <SelectTrigger id="tokenSelect">
+                    <SelectValue placeholder="Choose a whitelisted token..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {whitelistedTokens.length > 0 ? (
+                      whitelistedTokens.map((token) => (
+                        <SelectItem key={token.address} value={token.address}>
+                          {token.name ||
+                            `${token.address.slice(
+                              0,
+                              6
+                            )}...${token.address.slice(-4)}`}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="loading" disabled>
+                        Loading tokens...
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Enter the contract address of your ERC20 token deployed on
-                  Celo Mainnet. Default: cUSD token
+                  Select from pre-approved tokens
                 </p>
-              )}
+              </div>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">
+                    Or enter manually
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="tokenAddress">Custom Token Address</Label>
+                <Input
+                  id="tokenAddress"
+                  value={formData.token}
+                  onChange={(e) => onUpdate({ token: e.target.value })}
+                  placeholder="0x..."
+                  pattern="^0x[a-fA-F0-9]{40}$"
+                  className={
+                    errors.tokenAddress
+                      ? "border-red-500 focus:border-red-500"
+                      : ""
+                  }
+                />
+                {errors.tokenAddress ? (
+                  <p className="text-red-500 text-sm mt-1">
+                    {errors.tokenAddress}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Enter a custom ERC20 token address (must be whitelisted)
+                  </p>
+                )}
+              </div>
             </div>
           )}
 

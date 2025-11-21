@@ -34,6 +34,9 @@ export default function CreateEscrowPage() {
   const [isOpenJob, setIsOpenJob] = useState(false);
   const [isContractPaused, setIsContractPaused] = useState(false);
   const [isOnCorrectNetwork, setIsOnCorrectNetwork] = useState(true);
+  const [whitelistedTokens, setWhitelistedTokens] = useState<
+    { address: string; name?: string }[]
+  >([]);
   const [errors, setErrors] = useState<{
     projectTitle?: string;
     projectDescription?: string;
@@ -48,6 +51,7 @@ export default function CreateEscrowPage() {
   useEffect(() => {
     checkContractPauseStatus();
     checkNetworkStatus();
+    fetchWhitelistedTokens();
   }, [wallet.chainId]);
 
   const checkNetworkStatus = async () => {
@@ -91,6 +95,95 @@ export default function CreateEscrowPage() {
       setIsContractPaused(isPaused);
     } catch (error) {
       setIsContractPaused(false);
+    }
+  };
+
+  const fetchWhitelistedTokens = async () => {
+    try {
+      const { ethers } = await import("ethers");
+
+      // Known token mappings
+      const TOKEN_NAMES: { [key: string]: string } = {
+        "0x765DE816845861e75A25fCA122bb6898B8B1282a": "cUSD (Celo Dollar)",
+        "0xcebA9300f2b948710d2653dD7B07f33A8B32118C": "USDC",
+        "0x471EcE3750Da237f93B8E339c536989b8978a438": "CELO",
+      };
+
+      let allWhitelistedTokens: string[] = [];
+
+      // Try to query events from contract
+      for (const rpcUrl of CELO_MAINNET.rpcUrls) {
+        try {
+          const provider = new ethers.JsonRpcProvider(rpcUrl);
+          const contractWithProvider = new ethers.Contract(
+            CONTRACTS.SECUREFLOW_ESCROW,
+            SECUREFLOW_ABI,
+            provider
+          );
+
+          const currentBlock = await provider.getBlockNumber();
+          const fromBlock = Math.max(0, currentBlock - 100000); // Last ~100k blocks
+
+          // Query TokenWhitelisted events
+          const whitelistedEvents = await contractWithProvider.queryFilter(
+            contractWithProvider.filters.TokenWhitelisted(),
+            fromBlock,
+            currentBlock
+          );
+
+          // Query TokenBlacklisted events
+          const blacklistedEvents = await contractWithProvider.queryFilter(
+            contractWithProvider.filters.TokenBlacklisted(),
+            fromBlock,
+            currentBlock
+          );
+
+          const whitelisted = new Set(
+            whitelistedEvents.map((e: any) => e.args[0].toLowerCase())
+          );
+          const blacklisted = new Set(
+            blacklistedEvents.map((e: any) => e.args[0].toLowerCase())
+          );
+
+          // Remove blacklisted from whitelisted
+          blacklisted.forEach((token) => whitelisted.delete(token));
+
+          allWhitelistedTokens = Array.from(whitelisted);
+          break; // Success, exit loop
+        } catch (error) {
+          console.warn(`Failed to fetch from ${rpcUrl}:`, error);
+          continue; // Try next RPC
+        }
+      }
+
+      // Map addresses to names
+      const tokensWithNames = allWhitelistedTokens.map((address) => ({
+        address,
+        name: TOKEN_NAMES[address] || undefined,
+      }));
+
+      // Add cUSD as default if not in list
+      if (
+        !allWhitelistedTokens.some(
+          (addr) => addr.toLowerCase() === CONTRACTS.CUSD_MAINNET.toLowerCase()
+        )
+      ) {
+        tokensWithNames.unshift({
+          address: CONTRACTS.CUSD_MAINNET,
+          name: "cUSD (Celo Dollar)",
+        });
+      }
+
+      setWhitelistedTokens(tokensWithNames);
+    } catch (error) {
+      console.error("Failed to fetch whitelisted tokens:", error);
+      // Fallback to default tokens
+      setWhitelistedTokens([
+        {
+          address: CONTRACTS.CUSD_MAINNET,
+          name: "cUSD (Celo Dollar)",
+        },
+      ]);
     }
   };
 
@@ -1186,6 +1279,7 @@ export default function CreateEscrowPage() {
                     clearErrors();
                   }}
                   isContractPaused={isContractPaused}
+                  whitelistedTokens={whitelistedTokens}
                   errors={{
                     projectTitle: errors.projectTitle,
                     projectDescription: errors.projectDescription,
