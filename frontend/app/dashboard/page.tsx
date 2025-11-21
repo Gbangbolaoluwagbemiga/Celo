@@ -400,7 +400,8 @@ export default function DashboardPage() {
                   i,
                   escrowSummary
                 )) as Milestone[], // Fetch milestones from contract and assert correct type
-                projectDescription: escrowSummary[13] || "", // projectTitle
+                projectTitle: escrowSummary[13] || "", // projectTitle
+                projectDescription: escrowSummary[14] || "", // projectDescription
               };
 
               userEscrows.push(escrow);

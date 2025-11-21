@@ -28,6 +28,7 @@ export interface Escrow {
   createdAt: number;
   duration: number;
   milestones: Milestone[];
+  projectTitle?: string;
   projectDescription?: string;
   isOpenJob?: boolean; // true if no freelancer assigned yet
   applications?: Application[];

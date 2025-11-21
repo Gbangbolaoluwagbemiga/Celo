@@ -195,60 +195,62 @@ export function ProjectDetailsStep({
 
           {!formData.useNativeToken && (
             <div>
-              <Label
-                htmlFor="tokenSelect"
-                className="flex items-center gap-1.5"
-              >
-                <Coins className="h-4 w-4 text-primary" />
-                Payment Token *
-              </Label>
-
-              <Select
-                value={formData.token}
-                onValueChange={(value) => onUpdate({ token: value })}
-              >
-                <SelectTrigger
-                  id="tokenSelect"
-                  className={
-                    errors.tokenAddress
-                      ? "border-red-500 focus:border-red-500"
-                      : ""
-                  }
+              <div className="flex items-center gap-3">
+                <Label
+                  htmlFor="tokenSelect"
+                  className="flex items-center gap-1.5 whitespace-nowrap"
                 >
-                  <SelectValue placeholder="Select a token..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {whitelistedTokens.length > 0 ? (
-                    whitelistedTokens.map((token) => {
-                      const displayName = token.name || "Unknown Token";
-                      const displaySymbol = token.symbol || "???";
-                      const shortAddress = `${token.address.slice(
-                        0,
-                        6
-                      )}...${token.address.slice(-4)}`;
+                  <Coins className="h-4 w-4 text-primary" />
+                  Custom Token *
+                </Label>
 
-                      return (
-                        <SelectItem key={token.address} value={token.address}>
-                          <span className="font-medium">{displayName}</span>
-                          {token.symbol && (
-                            <span className="font-normal">
-                              {" "}
-                              ({displaySymbol})
+                <Select
+                  value={formData.token}
+                  onValueChange={(value) => onUpdate({ token: value })}
+                >
+                  <SelectTrigger
+                    id="tokenSelect"
+                    className={`flex-1 ${
+                      errors.tokenAddress
+                        ? "border-red-500 focus:border-red-500"
+                        : ""
+                    }`}
+                  >
+                    <SelectValue placeholder="Select a token..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {whitelistedTokens.length > 0 ? (
+                      whitelistedTokens.map((token) => {
+                        const displayName = token.name || "Unknown Token";
+                        const displaySymbol = token.symbol || "???";
+                        const shortAddress = `${token.address.slice(
+                          0,
+                          6
+                        )}...${token.address.slice(-4)}`;
+
+                        return (
+                          <SelectItem key={token.address} value={token.address}>
+                            <span className="font-medium">{displayName}</span>
+                            {token.symbol && (
+                              <span className="font-normal">
+                                {" "}
+                                ({displaySymbol})
+                              </span>
+                            )}
+                            <span className="text-xs text-muted-foreground ml-2">
+                              {shortAddress}
                             </span>
-                          )}
-                          <span className="text-xs text-muted-foreground ml-2">
-                            {shortAddress}
-                          </span>
-                        </SelectItem>
-                      );
-                    })
-                  ) : (
-                    <SelectItem value="loading" disabled>
-                      Loading tokens...
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+                          </SelectItem>
+                        );
+                      })
+                    ) : (
+                      <SelectItem value="loading" disabled>
+                        Loading tokens...
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
 
               {errors.tokenAddress ? (
                 <p className="text-red-500 text-sm mt-1">

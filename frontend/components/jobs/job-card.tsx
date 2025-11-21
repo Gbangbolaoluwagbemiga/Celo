@@ -50,7 +50,7 @@ export function JobCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-3">
               <h3 className="text-xl font-bold">
-                {job.projectDescription || `Job #${job.id}`}
+                {job.projectTitle || `Job #${job.id}`}
               </h3>
               <Badge variant="secondary" className="gap-1">
                 <Clock className="h-3 w-3" />
@@ -59,8 +59,8 @@ export function JobCard({
               <Badge className={getStatusColor(job.status)}>{job.status}</Badge>
             </div>
 
-            <p className="text-muted-foreground mb-4 break-words overflow-hidden">
-              {job.projectDescription}
+            <p className="text-muted-foreground mb-4 wrap-break-word overflow-hidden">
+              {job.projectDescription || "No description provided"}
             </p>
 
             <div className="flex items-center gap-4 text-sm text-muted-foreground">

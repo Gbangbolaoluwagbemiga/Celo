@@ -401,7 +401,8 @@ export default function ApprovalsPage() {
                   (Number(escrowSummary[8]) - Number(escrowSummary[10])) /
                   (24 * 60 * 60), // Convert seconds to days
                 milestones: [],
-                projectDescription: escrowSummary[13] || "No description",
+                projectTitle: escrowSummary[13] || "",
+                projectDescription: escrowSummary[14] || "No description",
                 isOpenJob: true,
                 applications,
                 applicationCount: Number(applicationCount),

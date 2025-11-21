@@ -350,7 +350,7 @@ export default function JobsPage() {
                   )
                 ), // Convert seconds to days, ensure non-negative and round to nearest day
                 milestones: [], // Would need to fetch milestones separately
-                // projectTitle: escrowSummary[13] || "", // projectTitle - removed as not in Escrow interface
+                projectTitle: escrowSummary[13] || "", // projectTitle
                 projectDescription: escrowSummary[14] || "", // projectDescription
                 isOpenJob: true,
                 applications: [], // Would need to fetch applications separately
