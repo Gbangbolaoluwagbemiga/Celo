@@ -325,12 +325,40 @@ export default function ApprovalsPage() {
                             continue; // Skip this duplicate application
                           }
 
+                          // Fetch freelancer rating
+                          let averageRating = 0;
+                          let totalRatings = 0;
+                          try {
+                            const ratingData = await contract.call(
+                              "getFreelancerRating",
+                              freelancerAddress
+                            );
+                            if (
+                              ratingData &&
+                              Array.isArray(ratingData) &&
+                              ratingData.length >= 2
+                            ) {
+                              // ratingData: [averageRating, totalRatings]
+                              // averageRating is stored as percentage (0-500), keep as is for display
+                              averageRating = Number(ratingData[0]) || 0;
+                              totalRatings = Number(ratingData[1]) || 0;
+                            }
+                          } catch (ratingError) {
+                            // Rating doesn't exist yet or error fetching - use defaults
+                            console.log(
+                              `Rating check for ${freelancerAddress}:`,
+                              ratingError
+                            );
+                          }
+
                           const application: Application = {
                             freelancerAddress,
                             coverLetter,
                             proposedTimeline,
                             appliedAt: appliedAt * 1000, // Convert to milliseconds
                             status: "pending" as const,
+                            averageRating,
+                            totalRatings,
                           };
 
                           applications.push(application);
@@ -346,6 +374,8 @@ export default function ApprovalsPage() {
                             proposedTimeline: 30,
                             appliedAt: Date.now() - appIndex * 86400000,
                             status: "pending" as const,
+                            averageRating: 0,
+                            totalRatings: 0,
                           };
 
                           // Check for duplicate fallback applications too

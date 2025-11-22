@@ -62,12 +62,44 @@ export default function AdminPage() {
   const [isWhitelisting, setIsWhitelisting] = useState(false);
   const [isAuthorizing, setIsAuthorizing] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Load from localStorage on mount
   const [knownWhitelistedTokens, setKnownWhitelistedTokens] = useState<
     string[]
-  >([]);
+  >(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("secureflow_whitelisted_tokens");
+      return stored ? JSON.parse(stored) : [];
+    }
+    return [];
+  });
   const [knownAuthorizedArbiters, setKnownAuthorizedArbiters] = useState<
     string[]
-  >([]);
+  >(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("secureflow_authorized_arbiters");
+      return stored ? JSON.parse(stored) : [];
+    }
+    return [];
+  });
+
+  // Save to localStorage whenever lists change
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(
+        "secureflow_whitelisted_tokens",
+        JSON.stringify(knownWhitelistedTokens)
+      );
+    }
+  }, [knownWhitelistedTokens]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(
+        "secureflow_authorized_arbiters",
+        JSON.stringify(knownAuthorizedArbiters)
+      );
+    }
+  }, [knownAuthorizedArbiters]);
   const [contractStats, setContractStats] = useState({
     platformFeeBP: 0,
     totalEscrows: 0,
@@ -84,27 +116,201 @@ export default function AdminPage() {
     }
   }, [wallet.isConnected]);
 
+  // Debug: Log when contractStats changes
+  useEffect(() => {
+    console.log("📈 contractStats state updated:", contractStats);
+  }, [contractStats]);
+
+  // Refresh stats when known lists change (after whitelisting/authorizing)
+  useEffect(() => {
+    if (
+      wallet.isConnected &&
+      (knownWhitelistedTokens.length > 0 || knownAuthorizedArbiters.length > 0)
+    ) {
+      fetchContractStats();
+    }
+  }, [knownWhitelistedTokens.length, knownAuthorizedArbiters.length]);
+
   const fetchContractOwner = async () => {
     try {
       const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW, SECUREFLOW_ABI);
-      const owner = await contract.owner();
-      setContractOwner(owner);
-    } catch (error) {}
+      if (!contract) return;
+      const owner = await contract.call("owner");
+      setContractOwner(owner?.toLowerCase() || null);
+      console.log("Contract owner:", owner);
+    } catch (error) {
+      console.error("Error fetching contract owner:", error);
+    }
   };
 
   const fetchContractStats = async () => {
+    setIsRefreshing(true);
+    console.log("🔄 Starting fetchContractStats...");
     try {
       const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW, SECUREFLOW_ABI);
+      if (!contract) {
+        console.error("❌ No contract instance available");
+        setIsRefreshing(false);
+        return;
+      }
+      console.log("✅ Contract instance created");
 
       // Fetch platform fee
       const platformFeeBP = await contract.call("platformFeeBP");
+      console.log("✅ Platform fee fetched:", platformFeeBP);
 
       // Fetch total escrows count
       const totalEscrows = await contract.call("nextEscrowId");
+      console.log("✅ Total escrows fetched:", totalEscrows);
 
-      // Query TokenWhitelisted events to get all whitelisted tokens
-      let allWhitelistedTokens: string[] = [];
-      let verifiedWhitelistedTokens: string[] = [];
+      // Fetch contract owner (needed for arbiter checks)
+      const contractOwner = await contract.call("owner");
+      console.log("✅ Contract owner fetched:", contractOwner);
+
+      // SIMPLE DIRECT CHECKS FIRST (more reliable than events)
+      console.log("🔍 Starting direct token/arbiter checks...");
+      const directWhitelistedTokens: string[] = [];
+      const directAuthorizedArbiters: string[] = [];
+
+      // Check known tokens directly (normalize to lowercase to avoid duplicates)
+      const tokensToCheck = [
+        CONTRACTS.CUSD_MAINNET,
+        CONTRACTS.MOCK_ERC20,
+        ...knownWhitelistedTokens,
+      ]
+        .filter((t) => t && t !== "0x0000000000000000000000000000000000000000")
+        .map((t) => t.toLowerCase());
+
+      console.log("📋 Tokens to check (unique):", [...new Set(tokensToCheck)]);
+      for (const token of new Set(tokensToCheck)) {
+        try {
+          console.log(`🔎 Checking token: ${token}`);
+          const result = await contract.call("whitelistedTokens", token);
+          console.log(`   Raw result:`, result, `Type:`, typeof result);
+
+          let isWhitelisted = false;
+          if (typeof result === "boolean") {
+            isWhitelisted = result;
+          } else if (typeof result === "string") {
+            isWhitelisted = result.toLowerCase() === "true" || result === "1";
+          } else if (typeof result === "number") {
+            isWhitelisted = result !== 0;
+          } else if (result && typeof result.toString === "function") {
+            const str = result.toString();
+            isWhitelisted = str !== "0" && str.toLowerCase() !== "false";
+          } else {
+            isWhitelisted = Boolean(result);
+          }
+
+          console.log(`   ✅ Token ${token} whitelisted: ${isWhitelisted}`);
+          if (isWhitelisted) {
+            directWhitelistedTokens.push(token.toLowerCase());
+          }
+        } catch (error) {
+          console.error(`   ❌ Error checking token ${token}:`, error);
+        }
+      }
+
+      // Check known arbiters directly (including owner) - normalize to lowercase
+      const contractOwnerLower = contractOwner?.toLowerCase();
+      const walletAddressLower = wallet.address?.toLowerCase();
+      const arbitersToCheck = [
+        contractOwnerLower,
+        walletAddressLower,
+        ...knownAuthorizedArbiters.map((a) => a.toLowerCase()),
+      ]
+        .filter((a) => a && a !== "0x0000000000000000000000000000000000000000")
+        .filter((a, index, arr) => arr.indexOf(a) === index); // Remove duplicates
+
+      console.log("📋 Arbiters to check (unique):", [
+        ...new Set(arbitersToCheck),
+      ]);
+      for (const arbiter of new Set(arbitersToCheck)) {
+        try {
+          console.log(`🔎 Checking arbiter: ${arbiter}`);
+          const result = await contract.call("authorizedArbiters", arbiter);
+          console.log(`   Raw result:`, result, `Type:`, typeof result);
+
+          let isAuthorized = false;
+          if (typeof result === "boolean") {
+            isAuthorized = result;
+          } else if (typeof result === "string") {
+            isAuthorized = result.toLowerCase() === "true" || result === "1";
+          } else if (typeof result === "number") {
+            isAuthorized = result !== 0;
+          } else if (result && typeof result.toString === "function") {
+            const str = result.toString();
+            isAuthorized = str !== "0" && str.toLowerCase() !== "false";
+          } else {
+            isAuthorized = Boolean(result);
+          }
+
+          // Owner is always authorized
+          if (arbiter === contractOwnerLower) {
+            isAuthorized = true;
+            console.log(`   ✅ Owner is always authorized`);
+          }
+
+          console.log(`   ✅ Arbiter ${arbiter} authorized: ${isAuthorized}`);
+          if (isAuthorized && !directAuthorizedArbiters.includes(arbiter)) {
+            directAuthorizedArbiters.push(arbiter);
+          }
+        } catch (error) {
+          console.error(`   ❌ Error checking arbiter ${arbiter}:`, error);
+        }
+      }
+
+      console.log("📊 Direct check results:", {
+        whitelistedTokens: directWhitelistedTokens,
+        authorizedArbiters: directAuthorizedArbiters,
+      });
+
+      // Remove duplicates from direct check results (they're already lowercase)
+      const uniqueWhitelistedTokens = [...new Set(directWhitelistedTokens)];
+      const uniqueAuthorizedArbiters = [...new Set(directAuthorizedArbiters)];
+
+      console.log("📊 Direct check results (deduplicated):", {
+        whitelistedTokens: uniqueWhitelistedTokens,
+        authorizedArbiters: uniqueAuthorizedArbiters,
+        counts: {
+          tokens: uniqueWhitelistedTokens.length,
+          arbiters: uniqueAuthorizedArbiters.length,
+        },
+      });
+
+      // Update known lists with direct check results
+      if (uniqueWhitelistedTokens.length > 0) {
+        setKnownWhitelistedTokens((prev) => {
+          const merged = [
+            ...new Set([
+              ...prev.map((t) => t.toLowerCase()),
+              ...uniqueWhitelistedTokens,
+            ]),
+          ];
+          console.log("📝 Updated knownWhitelistedTokens:", merged);
+          return merged;
+        });
+      }
+      if (uniqueAuthorizedArbiters.length > 0) {
+        setKnownAuthorizedArbiters((prev) => {
+          const merged = [
+            ...new Set([
+              ...prev.map((a) => a.toLowerCase()),
+              ...uniqueAuthorizedArbiters,
+            ]),
+          ];
+          console.log("📝 Updated knownAuthorizedArbiters:", merged);
+          return merged;
+        });
+      }
+
+      // Query TokenWhitelisted events to get ALL whitelisted tokens
+      // Then verify each one directly with the contract
+      let allWhitelistedTokensFromEvents: string[] = [];
+      let allAuthorizedArbitersFromEvents: string[] = [];
+      let verifiedTokens: string[] = [];
+      let verifiedArbiters: string[] = [];
+
       try {
         const { ethers } = await import("ethers");
 
@@ -124,13 +330,11 @@ export default function AdminPage() {
 
             // Query all TokenWhitelisted events - query in chunks to avoid RPC limits
             const currentBlock = await provider.getBlockNumber();
-            // Query from a reasonable starting point (last 200,000 blocks ~2-3 months) in chunks
-            // This should cover most contract activity while avoiding querying from block 0
+            // Query from block 0 to get all events (contract might be older than 200k blocks)
             const chunkSize = 10000;
             events = [];
-            // Start from a reasonable point in the past (last 200k blocks)
-            // If this doesn't find events, we can increase the range
-            let fromBlock = Math.max(0, currentBlock - 200000);
+            // Start from block 0 to ensure we get all events
+            let fromBlock = 0;
 
             // Query events in chunks of 10,000 blocks
             for (
@@ -203,7 +407,9 @@ export default function AdminPage() {
           }
         }
 
-        if (!provider || (events.length === 0 && lastError)) {
+        // Don't throw error if events are empty - might just mean no events yet
+        // We'll fall back to direct verification
+        if (!provider) {
           throw lastError || new Error("All RPC endpoints failed");
         }
 
@@ -225,7 +431,7 @@ export default function AdminPage() {
         const currentBlock = await provider!.getBlockNumber();
         const chunkSize = 10000;
         let blacklistEvents: any[] = [];
-        const blacklistFromBlock = Math.max(0, currentBlock - 200000); // Same range as whitelist events
+        const blacklistFromBlock = 0; // Query from block 0 to get all events
 
         // Query in chunks from the same starting block
         for (
@@ -288,67 +494,74 @@ export default function AdminPage() {
           }
         });
 
-        allWhitelistedTokens = Array.from(tokenAddresses);
+        allWhitelistedTokensFromEvents = Array.from(tokenAddresses).map((t) => t.toLowerCase());
         console.log(
-          "Found whitelisted tokens from events:",
-          allWhitelistedTokens
+          "📋 Found whitelisted tokens from events:",
+          allWhitelistedTokensFromEvents.length,
+          allWhitelistedTokensFromEvents
         );
-
-        // Verify each token is still whitelisted (in case it was blacklisted)
-        verifiedWhitelistedTokens = [];
-        for (const token of allWhitelistedTokens) {
-          try {
-            const isWhitelisted = await contract.call(
-              "whitelistedTokens",
-              token
-            );
-            if (isWhitelisted) {
-              verifiedWhitelistedTokens.push(token);
-            }
-          } catch (error) {
-            // Skip if check fails
-          }
-        }
-        setKnownWhitelistedTokens(verifiedWhitelistedTokens);
       } catch (eventError) {
-        console.error("Error querying events:", eventError);
-        // Fallback to checking known tokens
-        const tokensToCheck = [
-          ...new Set([
-            CONTRACTS.CUSD_MAINNET,
-            CONTRACTS.MOCK_ERC20,
-            ...knownWhitelistedTokens,
-          ]),
-        ];
-
-        verifiedWhitelistedTokens = [];
-        for (const token of tokensToCheck) {
-          if (!token) continue;
-          try {
-            const isWhitelisted = await contract.call(
-              "whitelistedTokens",
-              token
-            );
-            if (isWhitelisted) {
-              verifiedWhitelistedTokens.push(token);
-            }
-          } catch (error) {
-            // Skip if check fails
-          }
-        }
-        setKnownWhitelistedTokens(verifiedWhitelistedTokens);
-        allWhitelistedTokens = verifiedWhitelistedTokens;
+        console.warn(
+          "Error querying token events (will use direct checks):",
+          eventError
+        );
+        // Continue with direct checks below
       }
 
-      const whitelistedCount =
-        verifiedWhitelistedTokens.length ||
-        knownWhitelistedTokens.length ||
-        allWhitelistedTokens.length ||
-        0;
+      // Verify ALL tokens from events directly with the contract
+      // Combine addresses from events and initial direct checks
+      const allTokensToVerify = [
+        ...new Set([
+          ...uniqueWhitelistedTokens, // From initial direct checks
+          ...allWhitelistedTokensFromEvents, // From event queries
+          CONTRACTS.CUSD_MAINNET?.toLowerCase(),
+          CONTRACTS.MOCK_ERC20?.toLowerCase(),
+          ...knownWhitelistedTokens.map((t) => t.toLowerCase()),
+        ]),
+      ].filter(
+        (token) =>
+          token && token !== "0x0000000000000000000000000000000000000000"
+      );
+
+      console.log("🔍 Verifying all tokens from events:", allTokensToVerify.length, allTokensToVerify);
+
+      verifiedTokens = [];
+      for (const token of allTokensToVerify) {
+        if (!token) continue;
+        try {
+          const result = await contract.call("whitelistedTokens", token);
+          // Handle different response types
+          let isWhitelisted = false;
+          if (typeof result === "boolean") {
+            isWhitelisted = result;
+          } else if (typeof result === "string") {
+            isWhitelisted = result.toLowerCase() === "true" || result === "1";
+          } else if (typeof result === "number") {
+            isWhitelisted = result !== 0;
+          } else if (result && typeof result.toString === "function") {
+            const str = result.toString();
+            isWhitelisted = str !== "0" && str.toLowerCase() !== "false";
+          } else {
+            isWhitelisted = Boolean(result);
+          }
+          if (isWhitelisted && !verifiedTokens.includes(token.toLowerCase())) {
+            verifiedTokens.push(token.toLowerCase());
+            console.log(`✅ Verified whitelisted token: ${token}`);
+          }
+        } catch (error) {
+          console.warn(`❌ Error verifying token ${token}:`, error);
+        }
+      }
+
+      console.log("✅ Final verified whitelisted tokens:", verifiedTokens.length, verifiedTokens);
+      
+      // Update known list
+      if (verifiedTokens.length > 0) {
+        setKnownWhitelistedTokens(verifiedTokens);
+      }
 
       // Query ArbiterAuthorized events to get all authorized arbiters
-      let allAuthorizedArbiters: string[] = [];
-      let authorizedArbiterCount = 0;
+
       try {
         const { ethers } = await import("ethers");
 
@@ -370,8 +583,8 @@ export default function AdminPage() {
             const currentBlock = await provider.getBlockNumber();
             const chunkSize = 10000;
             arbiterEvents = [];
-            // Start from same range as token events (last 200k blocks)
-            const arbiterFromBlock = Math.max(0, currentBlock - 200000);
+            // Start from block 0 to get all events
+            const arbiterFromBlock = 0;
 
             // Query events in chunks of 10,000 blocks
             for (
@@ -448,7 +661,9 @@ export default function AdminPage() {
           }
         }
 
-        if (!provider || (arbiterEvents.length === 0 && lastError)) {
+        // Don't throw error if events are empty - might just mean no events yet
+        // We'll fall back to direct verification
+        if (!provider) {
           throw lastError || new Error("All RPC endpoints failed");
         }
 
@@ -470,7 +685,7 @@ export default function AdminPage() {
         const currentBlock = await provider!.getBlockNumber();
         const chunkSize = 10000;
         let revokeEvents: any[] = [];
-        const revokeFromBlock = Math.max(0, currentBlock - 200000); // Same range as arbiter events
+        const revokeFromBlock = 0; // Query from block 0 to get all events
 
         // Query in chunks from the same starting block
         for (
@@ -532,71 +747,160 @@ export default function AdminPage() {
           }
         });
 
-        allAuthorizedArbiters = Array.from(arbiterAddresses);
+        allAuthorizedArbitersFromEvents = Array.from(arbiterAddresses).map((a) => a.toLowerCase());
         console.log(
-          "Found authorized arbiters from events:",
-          allAuthorizedArbiters
+          "📋 Found authorized arbiters from events:",
+          allAuthorizedArbitersFromEvents.length,
+          allAuthorizedArbitersFromEvents
         );
-
-        // Verify each arbiter is still authorized
-        const verifiedAuthorizedArbiters: string[] = [];
-        for (const arbiter of allAuthorizedArbiters) {
-          try {
-            const isAuthorized = await contract.call(
-              "authorizedArbiters",
-              arbiter
-            );
-            if (isAuthorized) {
-              verifiedAuthorizedArbiters.push(arbiter);
-            }
-          } catch (error) {
-            // Skip if check fails
-          }
-        }
-        setKnownAuthorizedArbiters(verifiedAuthorizedArbiters);
-        authorizedArbiterCount =
-          verifiedAuthorizedArbiters.length || allAuthorizedArbiters.length;
       } catch (eventError) {
-        console.error("Error querying arbiter events:", eventError);
-        // Fallback to checking known arbiters
-        const arbitersToCheck = [
-          ...new Set([
-            wallet.address,
-            "0x3be7fbbdbc73fc4731d60ef09c4ba1a94dc58e41",
-            "0xF1E430aa48c3110B2f223f278863A4c8E2548d8C",
-            ...knownAuthorizedArbiters,
-          ]),
-        ];
-
-        const verifiedAuthorizedArbiters: string[] = [];
-        for (const arbiter of arbitersToCheck) {
-          if (!arbiter) continue;
-          try {
-            const isAuthorized = await contract.call(
-              "authorizedArbiters",
-              arbiter
-            );
-            if (isAuthorized) {
-              authorizedArbiterCount++;
-              verifiedAuthorizedArbiters.push(arbiter);
-            }
-          } catch (error) {
-            // Skip if check fails
-          }
-        }
-        setKnownAuthorizedArbiters(verifiedAuthorizedArbiters);
+        console.warn(
+          "Error querying arbiter events (will use direct checks):",
+          eventError
+        );
+        // Continue with direct checks below
       }
 
-      // Set actual contract stats
-      setContractStats({
-        platformFeeBP: Number(platformFeeBP),
-        totalEscrows: Number(totalEscrows),
+      // Verify ALL arbiters from events directly with the contract
+      // Combine addresses from events and initial direct checks
+      const allArbitersToVerify = [
+        ...new Set([
+          ...uniqueAuthorizedArbiters, // From initial direct checks
+          ...allAuthorizedArbitersFromEvents, // From event queries
+          contractOwnerLower, // Owner is always authorized
+          walletAddressLower,
+          ...knownAuthorizedArbiters.map((a) => a.toLowerCase()),
+        ]),
+      ].filter((a) => a && a !== "0x0000000000000000000000000000000000000000");
+
+      console.log("🔍 Verifying all arbiters from events:", allArbitersToVerify.length, allArbitersToVerify);
+
+      verifiedArbiters = [];
+      for (const arbiter of allArbitersToVerify) {
+        if (!arbiter) continue;
+        try {
+          const result = await contract.call("authorizedArbiters", arbiter);
+          // Handle different response types
+          let isAuthorized = false;
+          if (typeof result === "boolean") {
+            isAuthorized = result;
+          } else if (typeof result === "string") {
+            isAuthorized = result.toLowerCase() === "true" || result === "1";
+          } else if (typeof result === "number") {
+            isAuthorized = result !== 0;
+          } else if (result && typeof result.toString === "function") {
+            const str = result.toString();
+            isAuthorized = str !== "0" && str.toLowerCase() !== "false";
+          } else {
+            isAuthorized = Boolean(result);
+          }
+          
+          // Owner is always authorized
+          if (arbiter === contractOwnerLower) {
+            isAuthorized = true;
+          }
+          
+          if (isAuthorized && !verifiedArbiters.includes(arbiter.toLowerCase())) {
+            verifiedArbiters.push(arbiter.toLowerCase());
+            console.log(`✅ Verified authorized arbiter: ${arbiter}`);
+          }
+        } catch (error) {
+          console.warn(`❌ Error verifying arbiter ${arbiter}:`, error);
+        }
+      }
+
+      console.log("✅ Final verified authorized arbiters:", verifiedArbiters.length, verifiedArbiters);
+      
+      // Update known list
+      if (verifiedArbiters.length > 0) {
+        setKnownAuthorizedArbiters(verifiedArbiters);
+      }
+
+
+      // Use verified results from event queries + direct checks
+      // These are the actual verified counts from contract calls
+      const finalWhitelistedCount = verifiedTokens.length;
+      const finalArbiterCount = verifiedArbiters.length;
+
+      console.log("🔢 Final count calculation (using verified results):", {
+        whitelisted: {
+          verifiedTokens: verifiedTokens.length,
+          final: finalWhitelistedCount,
+          tokens: verifiedTokens,
+        },
+        arbiters: {
+          verifiedArbiters: verifiedArbiters.length,
+          final: finalArbiterCount,
+          arbiters: verifiedArbiters,
+        },
+      });
+
+      console.log("📊 FINAL STATS:", {
+        whitelistedTokens: {
+          count: verifiedTokens.length,
+          final: finalWhitelistedCount,
+          tokens: verifiedTokens,
+        },
+        authorizedArbiters: {
+          count: verifiedArbiters.length,
+          final: finalArbiterCount,
+          arbiters: verifiedArbiters,
+        },
+      });
+
+      // Convert BigInt values to numbers
+      const platformFeeBPNum =
+        typeof platformFeeBP === "bigint"
+          ? Number(platformFeeBP)
+          : Number(platformFeeBP || 0);
+      const totalEscrowsNum =
+        typeof totalEscrows === "bigint"
+          ? Number(totalEscrows)
+          : Number(totalEscrows || 0);
+
+      const statsToSet = {
+        platformFeeBP: platformFeeBPNum,
+        totalEscrows: totalEscrowsNum,
         totalVolume: "0", // Would need to be tracked in contract
-        authorizedArbiters: authorizedArbiterCount,
-        whitelistedTokens: whitelistedCount,
+        authorizedArbiters: finalArbiterCount,
+        whitelistedTokens: finalWhitelistedCount,
+      };
+
+      console.log("💾 Setting contract stats:", statsToSet);
+      console.log("💾 Stats values breakdown:", {
+        platformFeeBP: { raw: platformFeeBP, converted: platformFeeBPNum },
+        totalEscrows: { raw: totalEscrows, converted: totalEscrowsNum },
+        authorizedArbiters: finalArbiterCount,
+        whitelistedTokens: finalWhitelistedCount,
+      });
+
+      // Use functional update to ensure we're setting the latest state
+      setContractStats((prev) => {
+        const newStats = {
+          platformFeeBP: platformFeeBPNum,
+          totalEscrows: totalEscrowsNum,
+          totalVolume: "0",
+          authorizedArbiters: finalArbiterCount,
+          whitelistedTokens: finalWhitelistedCount,
+        };
+        console.log(
+          "🔄 setContractStats callback - prev:",
+          prev,
+          "new:",
+          newStats
+        );
+        return newStats;
+      });
+
+      console.log("✅ Contract stats update called! Expected values:", {
+        platformFeeBP: platformFeeBPNum,
+        totalEscrows: totalEscrowsNum,
+        authorizedArbiters: finalArbiterCount,
+        whitelistedTokens: finalWhitelistedCount,
       });
     } catch (error) {
-      console.error("Error fetching contract stats:", error);
+      console.error("❌ Error fetching contract stats:", error);
+      console.error("Error details:", error);
       // Set empty stats if contract calls fail
       setContractStats({
         platformFeeBP: 0,
@@ -605,6 +909,9 @@ export default function AdminPage() {
         authorizedArbiters: 0,
         whitelistedTokens: 0,
       });
+    } finally {
+      setIsRefreshing(false);
+      console.log("🏁 fetchContractStats completed");
     }
   };
 
@@ -655,10 +962,28 @@ export default function AdminPage() {
       const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW, SECUREFLOW_ABI);
 
       // Check if already whitelisted
-      const isWhitelisted = await contract.call(
+      const isWhitelistedRaw = await contract.call(
         "whitelistedTokens",
         tokenAddress
       );
+      // Handle different response types
+      let isWhitelisted = false;
+      if (typeof isWhitelistedRaw === "boolean") {
+        isWhitelisted = isWhitelistedRaw;
+      } else if (typeof isWhitelistedRaw === "string") {
+        isWhitelisted =
+          isWhitelistedRaw.toLowerCase() === "true" || isWhitelistedRaw === "1";
+      } else if (typeof isWhitelistedRaw === "number") {
+        isWhitelisted = isWhitelistedRaw !== 0;
+      } else if (
+        isWhitelistedRaw &&
+        typeof isWhitelistedRaw.toString === "function"
+      ) {
+        const str = isWhitelistedRaw.toString();
+        isWhitelisted = str !== "0" && str.toLowerCase() !== "false";
+      } else {
+        isWhitelisted = Boolean(isWhitelistedRaw);
+      }
       if (isWhitelisted) {
         toast({
           title: "Already whitelisted",
@@ -672,7 +997,12 @@ export default function AdminPage() {
       await contract.send("whitelistToken", "no-value", tokenAddress);
 
       // Add to known whitelisted tokens
-      setKnownWhitelistedTokens((prev) => [...prev, tokenAddress]);
+      const normalizedTokenAddress = tokenAddress.toLowerCase();
+      setKnownWhitelistedTokens((prev) => {
+        const updated = [...prev, normalizedTokenAddress];
+        console.log("Updated known whitelisted tokens:", updated);
+        return updated;
+      });
 
       toast({
         title: "Token whitelisted",
@@ -680,6 +1010,8 @@ export default function AdminPage() {
       });
 
       setTokenAddress("");
+      // Wait a moment for blockchain state to update
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       fetchContractStats();
     } catch (error: any) {
       toast({
@@ -716,10 +1048,28 @@ export default function AdminPage() {
       const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW, SECUREFLOW_ABI);
 
       // Check if already authorized
-      const isAuthorized = await contract.call(
+      const isAuthorizedRaw = await contract.call(
         "authorizedArbiters",
         arbiterAddress
       );
+      // Handle different response types
+      let isAuthorized = false;
+      if (typeof isAuthorizedRaw === "boolean") {
+        isAuthorized = isAuthorizedRaw;
+      } else if (typeof isAuthorizedRaw === "string") {
+        isAuthorized =
+          isAuthorizedRaw.toLowerCase() === "true" || isAuthorizedRaw === "1";
+      } else if (typeof isAuthorizedRaw === "number") {
+        isAuthorized = isAuthorizedRaw !== 0;
+      } else if (
+        isAuthorizedRaw &&
+        typeof isAuthorizedRaw.toString === "function"
+      ) {
+        const str = isAuthorizedRaw.toString();
+        isAuthorized = str !== "0" && str.toLowerCase() !== "false";
+      } else {
+        isAuthorized = Boolean(isAuthorizedRaw);
+      }
       if (isAuthorized) {
         toast({
           title: "Already authorized",
@@ -733,7 +1083,12 @@ export default function AdminPage() {
       await contract.send("authorizeArbiter", "no-value", arbiterAddress);
 
       // Add to known authorized arbiters
-      setKnownAuthorizedArbiters((prev) => [...prev, arbiterAddress]);
+      const normalizedArbiterAddress = arbiterAddress.toLowerCase();
+      setKnownAuthorizedArbiters((prev) => {
+        const updated = [...prev, normalizedArbiterAddress];
+        console.log("Updated known authorized arbiters:", updated);
+        return updated;
+      });
 
       toast({
         title: "Arbiter authorized",
@@ -741,6 +1096,8 @@ export default function AdminPage() {
       });
 
       setArbiterAddress("");
+      // Wait a moment for blockchain state to update
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       fetchContractStats();
     } catch (error: any) {
       toast({

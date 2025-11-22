@@ -66,3 +66,4 @@ apply-theme.sh
 check-colors.sh
 fix-syntax.sh
 deployed-addresses.json
+.vercel
