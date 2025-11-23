@@ -288,64 +288,7 @@ export function EscrowCard({
                           tokens
                         </p>
 
-                        {/* Show resolution details for resolved disputes - compact */}
-                        {milestone.status === "resolved" && (
-                          <div className="mt-2 p-2 bg-purple-50 dark:bg-purple-900/20 rounded border border-purple-200 dark:border-purple-800">
-                            <p className="text-xs font-semibold text-purple-800 dark:text-purple-200 mb-1">
-                              ✅ Dispute Resolved
-                            </p>
-                            {milestone.resolutionReason && (
-                              <p className="text-xs text-purple-700 dark:text-purple-300 mb-1">
-                                <span className="font-medium">Reason:</span>{" "}
-                                {milestone.resolutionReason}
-                              </p>
-                            )}
-                            {milestone.winner && (
-                              <div className="text-xs text-purple-700 dark:text-purple-300 space-y-0.5">
-                                <p>
-                                  <span className="font-medium">Winner:</span>{" "}
-                                  {milestone.winner === escrow.payer
-                                    ? "Client"
-                                    : milestone.winner === escrow.beneficiary
-                                    ? "Freelancer"
-                                    : "Split"}
-                                </p>
-                                {/* Show exact fund split if available */}
-                                {milestone.freelancerAmount !== undefined &&
-                                milestone.clientAmount !== undefined ? (
-                                  <div className="text-xs text-purple-600 dark:text-purple-400 space-y-0.5">
-                                    <p>
-                                      <span className="font-medium">
-                                        Freelancer:
-                                      </span>{" "}
-                                      {milestone.freelancerAmount.toFixed(2)}{" "}
-                                      tokens
-                                    </p>
-                                    <p>
-                                      <span className="font-medium">
-                                        Client:
-                                      </span>{" "}
-                                      {milestone.clientAmount.toFixed(2)} tokens
-                                    </p>
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-purple-600 dark:text-purple-400">
-                                    <span className="font-medium">
-                                      Fund Split:
-                                    </span>{" "}
-                                    {milestone.winner === escrow.beneficiary &&
-                                      "Freelancer received majority"}
-                                    {milestone.winner === escrow.payer &&
-                                      "Client received majority"}
-                                    {milestone.winner !== escrow.beneficiary &&
-                                      milestone.winner !== escrow.payer &&
-                                      "Funds split between parties"}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        {/* Resolution details are shown in the summary section above, not in each milestone */}
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge
