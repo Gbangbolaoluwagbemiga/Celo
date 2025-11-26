@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+// Force dynamic rendering to prevent SSR issues with AppKit
+export const dynamic = "force-dynamic";
+
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { useWeb3 } from "@/contexts/web3-context";
 import { useSmartAccount } from "@/contexts/smart-account-context";
@@ -37,6 +40,10 @@ export default function CreateEscrowPage() {
   const [whitelistedTokens, setWhitelistedTokens] = useState<
     { address: string; name?: string; symbol?: string }[]
   >([]);
+  // Cache token metadata to avoid refetching on re-renders
+  const tokenMetadataCache = useRef<
+    Map<string, { name: string; symbol: string }>
+  >(new Map());
   const [errors, setErrors] = useState<{
     projectTitle?: string;
     projectDescription?: string;
@@ -61,7 +68,7 @@ export default function CreateEscrowPage() {
       const currentChainId = await window.ethereum.request({
         method: "eth_chainId",
       });
-      const targetChainId = CELO_MAINNET.chainId; // Celo Mainnet
+      const targetChainId = CELO_MAINNET.chainId; // Somnia Dream Testnet
 
       setIsOnCorrectNetwork(
         currentChainId.toLowerCase() === targetChainId.toLowerCase()
@@ -102,130 +109,276 @@ export default function CreateEscrowPage() {
     try {
       const { ethers } = await import("ethers");
 
-      // Known token mappings
+      // Known token mappings (use lowercase keys)
       const TOKEN_INFO: { [key: string]: { name: string; symbol: string } } = {
-        "0x765DE816845861e75A25fCA122bb6898B8B1282a": {
-          name: "Celo Dollar",
-          symbol: "cUSD",
-        },
-        "0xcebA9300f2b948710d2653dD7B07f33A8B32118C": {
+        "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": {
           name: "USD Coin",
           symbol: "USDC",
         },
-        "0x471EcE3750Da237f93B8E339c536989b8978a438": {
-          name: "Celo",
-          symbol: "CELO",
-        },
       };
 
+      const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW, SECUREFLOW_ABI);
+
+      // Query TokenWhitelisted events in 10k block chunks (RPC limit)
+      // Use smaller range for speed - last 50k blocks should be enough for recent deployments
       let allWhitelistedTokens: string[] = [];
 
-      // Try to query events from contract
-      for (const rpcUrl of CELO_MAINNET.rpcUrls) {
-        try {
-          const provider = new ethers.JsonRpcProvider(rpcUrl);
-          const contractWithProvider = new ethers.Contract(
-            CONTRACTS.SECUREFLOW_ESCROW,
-            SECUREFLOW_ABI,
-            provider
-          );
+      try {
+        const provider = new ethers.JsonRpcProvider(CELO_MAINNET.rpcUrls[0]);
+        const contractWithProvider = new ethers.Contract(
+          CONTRACTS.SECUREFLOW_ESCROW,
+          SECUREFLOW_ABI,
+          provider
+        );
 
-          const currentBlock = await provider.getBlockNumber();
-          const fromBlock = Math.max(0, currentBlock - 100000); // Last ~100k blocks
+        const currentBlock = await provider.getBlockNumber();
+        // Query from contract deployment block or last 100k blocks, whichever is smaller
+        // Contract was deployed recently, so 100k should be enough
+        const fromBlock = Math.max(0, currentBlock - 100000);
 
-          // Query TokenWhitelisted events
-          const whitelistedEvents = await contractWithProvider.queryFilter(
-            contractWithProvider.filters.TokenWhitelisted(),
-            fromBlock,
-            currentBlock
-          );
+        // Query in 10k block chunks to respect RPC limits
+        const chunkSize = 10000;
+        let whitelistedEvents: any[] = [];
+        let blacklistedEvents: any[] = [];
 
-          // Query TokenBlacklisted events
-          const blacklistedEvents = await contractWithProvider.queryFilter(
-            contractWithProvider.filters.TokenBlacklisted(),
-            fromBlock,
-            currentBlock
-          );
+        // Query chunks sequentially to avoid "maximum 10 calls in 1 batch" RPC limit
+        for (
+          let startBlock = fromBlock;
+          startBlock <= currentBlock;
+          startBlock += chunkSize
+        ) {
+          const endBlock = Math.min(startBlock + chunkSize - 1, currentBlock);
+          try {
+            const [whitelisted, blacklisted] = await Promise.all([
+              contractWithProvider
+                .queryFilter(
+                  contractWithProvider.filters.TokenWhitelisted(),
+                  startBlock,
+                  endBlock
+                )
+                .catch((err) => {
+                  console.warn(
+                    `Event query failed for blocks ${startBlock}-${endBlock}:`,
+                    err
+                  );
+                  return [];
+                }),
+              contractWithProvider
+                .queryFilter(
+                  contractWithProvider.filters.TokenBlacklisted(),
+                  startBlock,
+                  endBlock
+                )
+                .catch((err) => {
+                  console.warn(
+                    `Blacklist query failed for blocks ${startBlock}-${endBlock}:`,
+                    err
+                  );
+                  return [];
+                }),
+            ]);
 
-          const whitelisted = new Set(
-            whitelistedEvents.map((e: any) => e.args[0].toLowerCase())
-          );
-          const blacklisted = new Set(
-            blacklistedEvents.map((e: any) => e.args[0].toLowerCase())
-          );
-
-          // Remove blacklisted from whitelisted
-          blacklisted.forEach((token) => whitelisted.delete(token));
-
-          allWhitelistedTokens = Array.from(whitelisted);
-          break; // Success, exit loop
-        } catch (error) {
-          console.warn(`Failed to fetch from ${rpcUrl}:`, error);
-          continue; // Try next RPC
+            whitelistedEvents.push(...whitelisted);
+            blacklistedEvents.push(...blacklisted);
+          } catch (error) {
+            console.warn(
+              `Failed to query blocks ${startBlock}-${endBlock}:`,
+              error
+            );
+            // Continue with next chunk
+          }
         }
+
+        console.log(
+          `✅ Queried ${whitelistedEvents.length} whitelist events and ${blacklistedEvents.length} blacklist events`
+        );
+
+        const whitelisted = new Set<string>();
+        whitelistedEvents.forEach((e: any) => {
+          if (e.args && e.args[0]) {
+            const tokenAddr = e.args[0].toLowerCase();
+            whitelisted.add(tokenAddr);
+            console.log(`📝 Found whitelisted token in event: ${tokenAddr}`);
+          }
+        });
+
+        // Remove blacklisted tokens
+        blacklistedEvents.forEach((e: any) => {
+          if (e.args && e.args[0]) {
+            const tokenAddr = e.args[0].toLowerCase();
+            whitelisted.delete(tokenAddr);
+            console.log(`🚫 Found blacklisted token in event: ${tokenAddr}`);
+          }
+        });
+
+        allWhitelistedTokens = Array.from(whitelisted);
+        console.log("📋 Found tokens from events:", allWhitelistedTokens);
+      } catch (error) {
+        console.warn("Failed to query events:", error);
       }
 
-      // Map addresses to names and symbols, fetch from blockchain if not in hardcoded list
+      // Verify ALL tokens from events are still whitelisted (in case of blacklisting)
+      // Also check USDC directly as fallback
+      const tokensToVerify = [
+        ...allWhitelistedTokens, // Verify all tokens from events
+        CONTRACTS.USDC,
+      ].filter(
+        (t: string | undefined) =>
+          t && t !== "0x0000000000000000000000000000000000000000"
+      );
+
+      // Remove duplicates
+      const uniqueTokensToVerify = [
+        ...new Set(tokensToVerify.map((t) => t.toLowerCase())),
+      ];
+
+      console.log("🔍 Verifying tokens:", uniqueTokensToVerify);
+
+      const directChecks = await Promise.all(
+        uniqueTokensToVerify.map(async (tokenAddress) => {
+          try {
+            const isWhitelisted = await contract.call(
+              "whitelistedTokens",
+              tokenAddress
+            );
+            return isWhitelisted ? tokenAddress.toLowerCase() : null;
+          } catch (error) {
+            console.warn(`Failed to verify token ${tokenAddress}:`, error);
+            return null;
+          }
+        })
+      );
+
+      // Use directly verified tokens (this is the source of truth)
+      allWhitelistedTokens = directChecks.filter((t) => t !== null) as string[];
+      console.log("✅ Verified whitelisted tokens:", allWhitelistedTokens);
+
+      // Remove duplicates and filter out zero address
+      const uniqueTokens = [...new Set(allWhitelistedTokens)].filter(
+        (t) => t && t !== "0x0000000000000000000000000000000000000000"
+      );
+
+      if (uniqueTokens.length === 0) {
+        setWhitelistedTokens([]);
+        return;
+      }
+
+      // Fetch token metadata in parallel with timeout
       const provider = new ethers.JsonRpcProvider(CELO_MAINNET.rpcUrls[0]);
       const ERC20_ABI = [
         "function name() view returns (string)",
         "function symbol() view returns (string)",
       ];
 
+      console.log("📦 Fetching metadata for tokens:", uniqueTokens);
+
       const tokensWithInfo = await Promise.all(
-        allWhitelistedTokens.map(async (address) => {
-          // Check if we have hardcoded info
-          if (TOKEN_INFO[address]) {
+        uniqueTokens.map(async (address) => {
+          const addressLower = address.toLowerCase();
+
+          // Check cache first
+          const cached = tokenMetadataCache.current.get(addressLower);
+          if (cached) {
             return {
-              address,
-              name: TOKEN_INFO[address].name,
-              symbol: TOKEN_INFO[address].symbol,
+              address: addressLower,
+              name: cached.name,
+              symbol: cached.symbol,
             };
           }
 
-          // Fetch from blockchain
+          // Use hardcoded info if available
+          if (TOKEN_INFO[addressLower]) {
+            const info = {
+              address: addressLower,
+              name: TOKEN_INFO[addressLower].name,
+              symbol: TOKEN_INFO[addressLower].symbol,
+            };
+            // Cache it
+            tokenMetadataCache.current.set(addressLower, {
+              name: info.name,
+              symbol: info.symbol,
+            });
+            return info;
+          }
+
+          // Fetch from blockchain with timeout
           try {
             const tokenContract = new ethers.Contract(
               address,
               ERC20_ABI,
               provider
             );
-            const [name, symbol] = await Promise.all([
-              tokenContract.name(),
-              tokenContract.symbol(),
-            ]);
-            return { address, name, symbol };
+
+            // Try to fetch name and symbol separately with individual timeouts
+            let name: string | null = null;
+            let symbol: string | null = null;
+
+            try {
+              name = await Promise.race([
+                tokenContract.name(),
+                new Promise<string>((_, reject) =>
+                  setTimeout(() => reject(new Error("Name timeout")), 5000)
+                ),
+              ]);
+            } catch (nameError) {
+              // Silently fail - will use fallback
+            }
+
+            try {
+              symbol = await Promise.race([
+                tokenContract.symbol(),
+                new Promise<string>((_, reject) =>
+                  setTimeout(() => reject(new Error("Symbol timeout")), 5000)
+                ),
+              ]);
+            } catch (symbolError) {
+              // Silently fail - will use fallback
+            }
+
+            // If we got at least one, use it; otherwise use address
+            const result = {
+              address: addressLower,
+              name:
+                name ||
+                `${addressLower.slice(0, 6)}...${addressLower.slice(-4)}`,
+              symbol: symbol || "???",
+            };
+
+            // Cache successful results (only if we got both name and symbol)
+            if (name && symbol) {
+              tokenMetadataCache.current.set(addressLower, { name, symbol });
+            }
+
+            return result;
           } catch (error) {
-            console.warn(`Failed to fetch metadata for ${address}:`, error);
-            return { address, name: undefined, symbol: undefined };
+            // If contract call completely fails, use address as fallback
+            // Don't cache failures
+            return {
+              address: addressLower,
+              name: `${addressLower.slice(0, 6)}...${addressLower.slice(-4)}`,
+              symbol: "???",
+            };
           }
         })
       );
 
-      // Add cUSD as default if not in list
-      if (
-        !allWhitelistedTokens.some(
-          (addr) => addr.toLowerCase() === CONTRACTS.CUSD_MAINNET.toLowerCase()
-        )
-      ) {
-        tokensWithInfo.unshift({
-          address: CONTRACTS.CUSD_MAINNET,
-          name: "Celo Dollar",
-          symbol: "cUSD",
-        });
-      }
+      console.log("✅ Tokens with info:", tokensWithInfo);
 
-      setWhitelistedTokens(tokensWithInfo);
+      // Remove any duplicates by address (case-insensitive)
+      const seen = new Set<string>();
+      const deduplicated = tokensWithInfo.filter((token) => {
+        const key = token.address.toLowerCase();
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+
+      setWhitelistedTokens(deduplicated);
     } catch (error) {
       console.error("Failed to fetch whitelisted tokens:", error);
-      // Fallback to default tokens
-      setWhitelistedTokens([
-        {
-          address: CONTRACTS.CUSD_MAINNET,
-          name: "Celo Dollar",
-          symbol: "cUSD",
-        },
-      ]);
+      setWhitelistedTokens([]);
     }
   };
 
@@ -245,7 +398,7 @@ export default function CreateEscrowPage() {
   });
 
   const commonTokens = [
-    { name: "Native CELO", address: ZERO_ADDRESS, isNative: true },
+    { name: "Native ETH", address: ZERO_ADDRESS, isNative: true },
     { name: "Custom ERC20", address: "", isNative: false },
   ];
 
@@ -419,7 +572,7 @@ export default function CreateEscrowPage() {
       if (!formData.beneficiary) {
         errors.push("Beneficiary address is required for direct escrow");
       } else if (!/^0x[a-fA-F0-9]{40}$/.test(formData.beneficiary)) {
-        errors.push("Beneficiary address must be a valid Celo address");
+        errors.push("Beneficiary address must be a valid Somnia address");
       }
     }
 
@@ -507,9 +660,10 @@ export default function CreateEscrowPage() {
 
         // Test if token contract is working and get decimals
         let tokenDecimals = 18; // Default to 18
+        let tokenSymbol = "TOKEN"; // Default symbol for error messages
         try {
           const tokenName = await tokenContract.call("name");
-          const tokenSymbol = await tokenContract.call("symbol");
+          tokenSymbol = (await tokenContract.call("symbol")) || "TOKEN";
           const decimals = await tokenContract.call("decimals");
           tokenDecimals = Number(decimals) || 18;
 
@@ -557,7 +711,7 @@ export default function CreateEscrowPage() {
           throw new Error(
             `Token contract error: ${
               tokenError.message ||
-              "Please check the token address and ensure you're on Celo Mainnet"
+              "Please check the token address and ensure you're on Somnia Dream Testnet"
             }`
           );
         }
@@ -572,6 +726,9 @@ export default function CreateEscrowPage() {
         // Check token balance first
         try {
           // Ensure wallet address is checksummed
+          if (!wallet.address) {
+            throw new Error("Wallet address is not available");
+          }
           const { ethers } = await import("ethers");
           const checksummedAddress = ethers.getAddress(wallet.address);
           const checksummedTokenAddress = ethers.getAddress(formData.token);
@@ -710,7 +867,7 @@ export default function CreateEscrowPage() {
           throw new Error(
             `Failed to check token balance: ${
               balanceError.message ||
-              "Please ensure you have enough tokens and are on Celo Mainnet"
+              "Please ensure you have enough tokens and are on Somnia Dream Testnet"
             }`
           );
         }
@@ -785,8 +942,8 @@ export default function CreateEscrowPage() {
 
       // Native tokens (ZERO_ADDRESS) are always whitelisted by default in the contract
       if (isNativeToken) {
-        // Use createEscrowNative for native CELO tokens
-        console.log("Creating native CELO escrow (no whitelist check needed)");
+        // Use createEscrowNative for native tokens
+        console.log("Creating native token escrow (no whitelist check needed)");
         const totalAmountInWei = BigInt(
           Math.floor(Number.parseFloat(formData.totalBudget) * 10 ** 18)
         ).toString();
@@ -796,7 +953,11 @@ export default function CreateEscrowPage() {
         let balanceSource = "unknown";
 
         // Method 1: Try wallet provider (most reliable)
-        if (typeof window !== "undefined" && window.ethereum) {
+        if (
+          typeof window !== "undefined" &&
+          window.ethereum &&
+          wallet.address
+        ) {
           try {
             const { ethers } = await import("ethers");
             const checksummedAddress = ethers.getAddress(wallet.address);
@@ -804,7 +965,7 @@ export default function CreateEscrowPage() {
             balanceInWei = await walletProvider.getBalance(checksummedAddress);
             balanceSource = "walletProvider";
             console.log(
-              "✅ CELO balance from wallet provider:",
+              `✅ ${CELO_MAINNET.nativeCurrency.symbol} balance from wallet provider:`,
               balanceInWei.toString()
             );
           } catch (walletError: any) {
@@ -816,7 +977,7 @@ export default function CreateEscrowPage() {
         }
 
         // Method 2: Try direct RPC call
-        if (!balanceInWei) {
+        if (!balanceInWei && wallet.address) {
           try {
             const { ethers } = await import("ethers");
             const checksummedAddress = ethers.getAddress(wallet.address);
@@ -827,7 +988,7 @@ export default function CreateEscrowPage() {
             balanceInWei = BigInt(balance);
             balanceSource = "eth_getBalance";
             console.log(
-              "✅ CELO balance from eth_getBalance:",
+              `✅ ${CELO_MAINNET.nativeCurrency.symbol} balance from eth_getBalance:`,
               balanceInWei.toString()
             );
           } catch (rpcError: any) {
@@ -836,7 +997,7 @@ export default function CreateEscrowPage() {
         }
 
         // Method 3: Try direct RPC provider
-        if (!balanceInWei) {
+        if (!balanceInWei && wallet.address) {
           try {
             const { ethers } = await import("ethers");
             const checksummedAddress = ethers.getAddress(wallet.address);
@@ -846,7 +1007,7 @@ export default function CreateEscrowPage() {
             balanceInWei = await provider.getBalance(checksummedAddress);
             balanceSource = "directRPC";
             console.log(
-              "✅ CELO balance from direct RPC:",
+              `✅ ${CELO_MAINNET.nativeCurrency.symbol} balance from direct RPC:`,
               balanceInWei.toString()
             );
           } catch (directRpcError: any) {
@@ -859,15 +1020,16 @@ export default function CreateEscrowPage() {
 
         if (!balanceInWei) {
           throw new Error(
-            "Failed to retrieve CELO balance from all methods. Please check your wallet connection and network."
+            `Failed to retrieve ${CELO_MAINNET.nativeCurrency.symbol} balance from all methods. Please check your wallet connection and network.`
           );
         }
 
         const requiredAmount = BigInt(totalAmountInWei);
         const balanceFormatted = Number(balanceInWei) / 10 ** 18;
         const requiredFormatted = Number(requiredAmount) / 10 ** 18;
+        const nativeSymbol = CELO_MAINNET.nativeCurrency.symbol;
 
-        console.log("CELO Balance check:", {
+        console.log(`${nativeSymbol} Balance check:`, {
           balanceSource,
           rawBalance: balanceInWei.toString(),
           balanceFormatted: balanceFormatted.toFixed(4),
@@ -877,9 +1039,11 @@ export default function CreateEscrowPage() {
 
         if (balanceInWei < requiredAmount) {
           throw new Error(
-            `Insufficient CELO balance. You have ${balanceFormatted.toFixed(
+            `Insufficient ${nativeSymbol} balance. You have ${balanceFormatted.toFixed(
               4
-            )} CELO but need ${requiredFormatted.toFixed(4)} CELO.`
+            )} ${nativeSymbol} but need ${requiredFormatted.toFixed(
+              4
+            )} ${nativeSymbol}.`
           );
         }
 
@@ -952,7 +1116,7 @@ export default function CreateEscrowPage() {
               txHash = await executeTransaction(
                 CONTRACTS.SECUREFLOW_ESCROW,
                 data,
-                (Number(totalAmountInWei) / 1e18).toString() // Convert wei to CELO for value
+                (Number(totalAmountInWei) / 1e18).toString() // Convert wei to native token for value
               );
 
               toast({
@@ -1029,7 +1193,7 @@ export default function CreateEscrowPage() {
           txHash = await executeTransaction(
             CONTRACTS.SECUREFLOW_ESCROW,
             data,
-            "0" // No CELO value for ERC20
+            "0" // No native token value for ERC20
           );
 
           toast({
@@ -1222,12 +1386,12 @@ export default function CreateEscrowPage() {
                     Wrong Network
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    Please switch to Celo Mainnet to create escrows
+                    Please switch to Somnia Dream Testnet to create escrows
                   </p>
                 </div>
               </div>
               <Button onClick={switchToCelo} variant="destructive" size="sm">
-                Switch to Celo Mainnet
+                Switch to Somnia Dream Testnet
               </Button>
             </div>
           </div>
@@ -1307,11 +1471,13 @@ export default function CreateEscrowPage() {
                           ZERO_ADDRESS.toLowerCase())
                     ) {
                       // If unchecking native token and token is currently ZERO_ADDRESS, set to default
-                      console.log("Unchecking native token, setting to cUSD");
+                      console.log(
+                        "Unchecking native token, setting to default token"
+                      );
                       setFormData({
                         ...formData,
                         ...data,
-                        token: CONTRACTS.CUSD_MAINNET,
+                        token: CONTRACTS.USDC || CONTRACTS.MOCK_ERC20,
                       });
                     } else {
                       console.log(
