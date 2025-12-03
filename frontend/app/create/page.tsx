@@ -119,9 +119,108 @@ export default function CreateEscrowPage() {
 
       const contract = getContract(CONTRACTS.SECUREFLOW_ESCROW, SECUREFLOW_ABI);
 
-      // Query TokenWhitelisted events in 10k block chunks (RPC limit)
-      // Use smaller range for speed - last 50k blocks should be enough for recent deployments
+      // Load cached tokens from localStorage (shared with admin page)
+      let cachedTokens: string[] = [];
+      if (typeof window !== "undefined") {
+        const stored = localStorage.getItem("secureflow_whitelisted_tokens");
+        if (stored) {
+          try {
+            cachedTokens = JSON.parse(stored);
+            console.log("📋 Loaded cached tokens:", cachedTokens);
+
+            // Show cached tokens immediately while we fetch/verify in background
+            if (cachedTokens.length > 0) {
+              // Quick metadata fetch for cached tokens
+              const provider = new ethers.JsonRpcProvider(
+                CELO_MAINNET.rpcUrls[0]
+              );
+              const ERC20_ABI = [
+                "function name() view returns (string)",
+                "function symbol() view returns (string)",
+              ];
+
+              const quickTokens = await Promise.all(
+                cachedTokens.slice(0, 5).map(async (address: string) => {
+                  const addrLower = address.toLowerCase();
+                  // Check cache
+                  const cached = tokenMetadataCache.current.get(addrLower);
+                  if (cached) {
+                    return {
+                      address: addrLower,
+                      name: cached.name,
+                      symbol: cached.symbol,
+                    };
+                  }
+                  // Check hardcoded
+                  if (TOKEN_INFO[addrLower]) {
+                    return {
+                      address: addrLower,
+                      name: TOKEN_INFO[addrLower].name,
+                      symbol: TOKEN_INFO[addrLower].symbol,
+                    };
+                  }
+                  // Quick fetch
+                  try {
+                    const tokenContract = new ethers.Contract(
+                      address,
+                      ERC20_ABI,
+                      provider
+                    );
+                    const [name, symbol] = (await Promise.race([
+                      Promise.all([
+                        tokenContract.name(),
+                        tokenContract.symbol(),
+                      ]),
+                      new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error("Timeout")), 3000)
+                      ),
+                    ])) as [string, string];
+                    return { address: addrLower, name, symbol };
+                  } catch {
+                    return {
+                      address: addrLower,
+                      name: undefined,
+                      symbol: undefined,
+                    };
+                  }
+                })
+              );
+              setWhitelistedTokens(quickTokens.filter((t) => t.address));
+            }
+          } catch (e) {
+            console.warn("Failed to parse cached tokens:", e);
+          }
+        }
+      }
+
+      // Start with cached tokens, verify them directly (FAST)
       let allWhitelistedTokens: string[] = [];
+
+      // Verify cached tokens directly - much faster than event queries
+      if (cachedTokens.length > 0) {
+        console.log("⚡ Fast path: Verifying cached tokens directly...");
+        const verificationResults = await Promise.all(
+          cachedTokens.map(async (token) => {
+            try {
+              const isWhitelisted = await contract.call(
+                "whitelistedTokens",
+                token
+              );
+              return isWhitelisted ? token.toLowerCase() : null;
+            } catch {
+              return null;
+            }
+          })
+        );
+        allWhitelistedTokens = verificationResults.filter(
+          (t): t is string => t !== null
+        );
+        console.log(`✅ Verified ${allWhitelistedTokens.length} cached tokens`);
+      }
+
+      // ALWAYS check recent events to discover newly whitelisted tokens
+      // This catches tokens that were just whitelisted but not yet in cache
+      console.log("🔍 Checking recent events for newly whitelisted tokens...");
 
       try {
         const provider = new ethers.JsonRpcProvider(CELO_MAINNET.rpcUrls[0]);
@@ -132,16 +231,24 @@ export default function CreateEscrowPage() {
         );
 
         const currentBlock = await provider.getBlockNumber();
-        // Query from contract deployment block or last 100k blocks, whichever is smaller
-        // Contract was deployed recently, so 100k should be enough
-        const fromBlock = Math.max(0, currentBlock - 100000);
+        // Query from block 0 to get ALL tokens (like admin page does)
+        // This ensures we find tokens whitelisted at any time
+        const fromBlock = 0;
 
-        // Query in 10k block chunks to respect RPC limits
-        const chunkSize = 10000;
+        console.log(
+          `📡 Querying recent events (blocks ${fromBlock} to ${currentBlock})...`
+        );
+
+        // Query events in chunks with timeout to avoid hanging (like admin page)
+        const chunkSize = 10000; // 10k blocks per chunk (same as admin page)
         let whitelistedEvents: any[] = [];
         let blacklistedEvents: any[] = [];
 
-        // Query chunks sequentially to avoid "maximum 10 calls in 1 batch" RPC limit
+        console.log(
+          `📡 Querying events from block ${fromBlock} to ${currentBlock} in chunks of ${chunkSize}...`
+        );
+
+        // Query in chunks with timeout protection
         for (
           let startBlock = fromBlock;
           startBlock <= currentBlock;
@@ -149,109 +256,149 @@ export default function CreateEscrowPage() {
         ) {
           const endBlock = Math.min(startBlock + chunkSize - 1, currentBlock);
           try {
-            const [whitelisted, blacklisted] = await Promise.all([
+            const chunkQueryPromise = Promise.all([
               contractWithProvider
                 .queryFilter(
                   contractWithProvider.filters.TokenWhitelisted(),
                   startBlock,
                   endBlock
                 )
-                .catch((err) => {
-                  console.warn(
-                    `Event query failed for blocks ${startBlock}-${endBlock}:`,
-                    err
-                  );
-                  return [];
-                }),
+                .catch(() => []),
               contractWithProvider
                 .queryFilter(
                   contractWithProvider.filters.TokenBlacklisted(),
                   startBlock,
                   endBlock
                 )
-                .catch((err) => {
-                  console.warn(
-                    `Blacklist query failed for blocks ${startBlock}-${endBlock}:`,
-                    err
-                  );
-                  return [];
-                }),
+                .catch(() => []),
             ]);
+
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("Chunk timeout")), 5000)
+            );
+
+            const [whitelisted, blacklisted] = (await Promise.race([
+              chunkQueryPromise,
+              timeoutPromise,
+            ])) as [any[], any[]];
 
             whitelistedEvents.push(...whitelisted);
             blacklistedEvents.push(...blacklisted);
-          } catch (error) {
+
+            if (whitelisted.length > 0 || blacklisted.length > 0) {
+              console.log(
+                `  ✓ Blocks ${startBlock}-${endBlock}: ${whitelisted.length} whitelisted, ${blacklisted.length} blacklisted`
+              );
+            }
+          } catch (error: any) {
+            // Skip this chunk if it times out or fails, but continue with next chunks
             console.warn(
-              `Failed to query blocks ${startBlock}-${endBlock}:`,
-              error
+              `  ⚠️ Skipped chunk ${startBlock}-${endBlock}:`,
+              error.message
             );
-            // Continue with next chunk
+            // Don't break - continue with next chunks
+            continue;
           }
         }
 
         console.log(
-          `✅ Queried ${whitelistedEvents.length} whitelist events and ${blacklistedEvents.length} blacklist events`
+          `📊 Total events found: ${whitelistedEvents.length} whitelisted, ${blacklistedEvents.length} blacklisted`
         );
 
+        // Extract token addresses from events (matching admin page logic)
         const whitelisted = new Set<string>();
-        whitelistedEvents.forEach((e: any) => {
-          if (e.args && e.args[0]) {
-            const tokenAddr = e.args[0].toLowerCase();
-            whitelisted.add(tokenAddr);
-            console.log(`📝 Found whitelisted token in event: ${tokenAddr}`);
+        whitelistedEvents.forEach((event: any) => {
+          // Match admin page parsing: event.args && event.args.token
+          if (event.args && event.args.token) {
+            const addr = event.args.token.toString().toLowerCase();
+            if (addr && addr !== ZERO_ADDRESS.toLowerCase()) {
+              whitelisted.add(addr);
+            }
+          } else if (event.args && event.args[0]) {
+            // Fallback for different event format
+            const addr = event.args[0].toString().toLowerCase();
+            if (addr && addr !== ZERO_ADDRESS.toLowerCase()) {
+              whitelisted.add(addr);
+            }
+          }
+        });
+        blacklistedEvents.forEach((event: any) => {
+          // Match admin page parsing
+          if (event.args && event.args.token) {
+            whitelisted.delete(event.args.token.toString().toLowerCase());
+          } else if (event.args && event.args[0]) {
+            whitelisted.delete(event.args[0].toString().toLowerCase());
           }
         });
 
-        // Remove blacklisted tokens
-        blacklistedEvents.forEach((e: any) => {
-          if (e.args && e.args[0]) {
-            const tokenAddr = e.args[0].toLowerCase();
-            whitelisted.delete(tokenAddr);
-            console.log(`🚫 Found blacklisted token in event: ${tokenAddr}`);
-          }
-        });
+        const tokensFromEvents = Array.from(whitelisted);
+        console.log(
+          `📋 Found ${tokensFromEvents.length} tokens from events (from block ${fromBlock} to ${currentBlock}):`,
+          tokensFromEvents
+        );
 
-        allWhitelistedTokens = Array.from(whitelisted);
-        console.log("📋 Found tokens from events:", allWhitelistedTokens);
+        // If we found 0 tokens from events but have cached tokens,
+        // it might mean events aren't loading. Double-check localStorage.
+        if (tokensFromEvents.length === 0 && cachedTokens.length > 0) {
+          console.log(
+            "⚠️ No tokens found in events, but we have cached tokens. Verifying cached tokens..."
+          );
+        }
+
+        // Merge with cached/verified tokens
+        const allTokensToCheck = [
+          ...new Set([...allWhitelistedTokens, ...tokensFromEvents]),
+        ];
+
+        console.log(
+          `🔍 Total tokens to verify: ${allTokensToCheck.length}`,
+          allTokensToCheck
+        );
+
+        // Verify ALL tokens (cached + newly discovered)
+        const verificationResults = await Promise.all(
+          allTokensToCheck.map(async (token) => {
+            try {
+              const isWhitelisted = await contract.call(
+                "whitelistedTokens",
+                token
+              );
+              return isWhitelisted ? token.toLowerCase() : null;
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        allWhitelistedTokens = verificationResults.filter(
+          (t): t is string => t !== null
+        );
+        console.log(
+          `✅ Verified ${allWhitelistedTokens.length} total whitelisted tokens:`,
+          allWhitelistedTokens
+        );
+
+        // Update localStorage with all verified tokens
+        if (typeof window !== "undefined" && allWhitelistedTokens.length > 0) {
+          localStorage.setItem(
+            "secureflow_whitelisted_tokens",
+            JSON.stringify(allWhitelistedTokens)
+          );
+          console.log("💾 Updated localStorage with all verified tokens");
+        }
       } catch (error) {
-        console.warn("Failed to query events:", error);
+        console.warn("Recent event check failed:", error);
+        // Continue with cached tokens if event query fails
       }
 
-      // Verify ALL tokens from events are still whitelisted (in case of blacklisting)
-      // Also check USDC directly as fallback
-      const tokensToVerify = [
-        ...allWhitelistedTokens, // Verify all tokens from events
-        CONTRACTS.USDC,
-      ].filter(
-        (t: string | undefined) =>
-          t && t !== "0x0000000000000000000000000000000000000000"
-      );
-
-      // Remove duplicates
-      const uniqueTokensToVerify = [
-        ...new Set(tokensToVerify.map((t) => t.toLowerCase())),
-      ];
-
-      console.log("🔍 Verifying tokens:", uniqueTokensToVerify);
-
-      const directChecks = await Promise.all(
-        uniqueTokensToVerify.map(async (tokenAddress) => {
-          try {
-            const isWhitelisted = await contract.call(
-              "whitelistedTokens",
-              tokenAddress
-            );
-            return isWhitelisted ? tokenAddress.toLowerCase() : null;
-          } catch (error) {
-            console.warn(`Failed to verify token ${tokenAddress}:`, error);
-            return null;
-          }
-        })
-      );
-
-      // Use directly verified tokens (this is the source of truth)
-      allWhitelistedTokens = directChecks.filter((t) => t !== null) as string[];
-      console.log("✅ Verified whitelisted tokens:", allWhitelistedTokens);
+      // Update localStorage cache with verified tokens (already done above if events succeeded)
+      if (typeof window !== "undefined" && allWhitelistedTokens.length > 0) {
+        localStorage.setItem(
+          "secureflow_whitelisted_tokens",
+          JSON.stringify(allWhitelistedTokens)
+        );
+        console.log("💾 Updated localStorage cache with verified tokens");
+      }
 
       // Remove duplicates and filter out zero address
       const uniqueTokens = [...new Set(allWhitelistedTokens)].filter(
