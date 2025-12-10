@@ -11,6 +11,7 @@ typechain-types/
 
 # Environment variables
 .env
+.env.local
 
 
 # IDE files
@@ -67,3 +68,12 @@ check-colors.sh
 fix-syntax.sh
 deployed-addresses.json
 .vercel
+
+# Documentation (temporary/development)
+# Keep only production docs in repo
+# *-QUICKSTART.md
+# *-STATUS.md
+# *-SETUP_COMPLETE.md
+
+# Scripts output
+*.log
