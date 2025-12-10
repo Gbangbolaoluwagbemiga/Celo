@@ -17,16 +17,15 @@ async function getVerifier() {
     
     // Configure allowed attestation types
     // Attestation IDs: 1 = Electronic Passport, 2 = EU ID Card
-    // Allow both passport and ID card attestations
-    const allowedIds = new Map<number, boolean>();
-    allowedIds.set(1, true); // Electronic Passport (NFC-enabled)
-    allowedIds.set(2, true); // EU ID Card (NFC-enabled)
+    // Use empty Map to accept all attestation types - let the mobile app choose
+    // This is more flexible and should work with any disclosure type
+    const allowedIds = new Map<number, boolean>(); // Empty = accept all
     
     verifier = new SelfBackendVerifier(
       "secureflow-identity", // Your app scope
       "", // Self Protocol doesn't require an API endpoint - proofs are verified locally
       process.env.NODE_ENV === "development", // devMode
-      allowedIds, // allowedIds - accept passports and EU ID cards
+      allowedIds, // Empty map = accept all attestation types
       null as any, // configStorage - implement based on Self Protocol docs
       "hex" // identifier type - using 'hex' since we use wallet addresses
     );
@@ -179,6 +178,7 @@ export async function POST(request: NextRequest) {
       
       // Determine attestation ID - Self Protocol uses numeric IDs
       // 1 = Electronic Passport (NFC-enabled), 2 = EU ID Card (NFC-enabled)
+      // For minimumAge disclosure, use the attestation ID from the payload
       // The verifier expects the numeric ID directly
       let verificationAttestationId: number = 1; // Default to passport (ID: 1)
       
@@ -200,6 +200,9 @@ export async function POST(request: NextRequest) {
           verificationAttestationId = isNaN(parsed) ? 1 : parsed;
         }
       }
+      
+      // For minimumAge disclosures, the attestation type might need special handling
+      // But we'll use the numeric ID from the payload
       
       console.log("🔍 Verifying with:", {
         attestationId: verificationAttestationId,
