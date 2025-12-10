@@ -8,5 +8,6 @@
   "ignoreCommand": "git diff --quiet HEAD^ HEAD ./frontend/",
   "env": {
     "NEXT_TELEMETRY_DISABLED": "1"
-  }
+  },
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }
