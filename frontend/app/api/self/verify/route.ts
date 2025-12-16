@@ -96,18 +96,37 @@ export async function POST(request: NextRequest) {
     // Self Protocol SDK sends data in specific format according to docs
     // Based on error logs, the structure is: { attestationId, proof, publicSignals }
     const proof = body.proof || body.Proof || body.proofData || body.proof_data;
-    const pubSignals = body.pubSignals || body.pub_signals || body.publicSignals || body.public_signals;
+    let pubSignals: any = body.publicSignals || body.pubSignals || body.public_signals || body.pub_signals;
     const userContextData = body.userContextData || body.user_context_data || body.contextData || body.context;
     const attestationId = body.attestationId || body.attestation_id;
     
     // Check nested structures
     const nestedData = body.data || body.verification || body.result || body.payload;
     const nestedProof = nestedData?.proof;
-    const nestedPubSignals = nestedData?.pubSignals || nestedData?.pub_signals || nestedData?.publicSignals;
+    const nestedPubSignals = nestedData?.publicSignals || nestedData?.pubSignals || nestedData?.pub_signals;
     const nestedAttestationId = nestedData?.attestationId;
 
     const finalProof = proof || nestedProof;
-    const finalPubSignals = pubSignals || nestedPubSignals;
+    let finalPubSignals: any = pubSignals || nestedPubSignals;
+
+    if (typeof finalPubSignals === 'string') {
+      try {
+        const parsed = JSON.parse(finalPubSignals);
+        finalPubSignals = parsed;
+      } catch {}
+    }
+
+    if (!Array.isArray(finalPubSignals) && finalProof && (finalProof.publicSignals || finalProof.pubSignals)) {
+      finalPubSignals = finalProof.publicSignals || finalProof.pubSignals;
+    }
+
+    if (finalPubSignals && typeof finalPubSignals === 'object' && !Array.isArray(finalPubSignals)) {
+      if (Array.isArray(finalPubSignals.data)) {
+        finalPubSignals = finalPubSignals.data;
+      } else if (Array.isArray(finalPubSignals.result)) {
+        finalPubSignals = finalPubSignals.result;
+      }
+    }
     const finalAttestationId = attestationId || nestedAttestationId;
 
     // Extract userAddress from publicSignals - it's typically the first element
@@ -152,12 +171,12 @@ export async function POST(request: NextRequest) {
 
     const finalUserContextData = userContextData || nestedData?.context || {};
 
-    if (!finalProof || !finalPubSignals) {
+    if (!finalProof || !finalPubSignals || (Array.isArray(finalPubSignals) && finalPubSignals.length === 0)) {
       console.error("❌ Missing required fields:");
       console.error("Body structure:", JSON.stringify(body, null, 2));
       return NextResponse.json(
         { 
-          error: "Missing required fields: proof, pubSignals",
+          error: "Missing or empty fields: proof, publicSignals",
           debug: {
             hasProof: !!finalProof,
             hasPubSignals: !!finalPubSignals,
@@ -165,7 +184,7 @@ export async function POST(request: NextRequest) {
             bodyKeys: Object.keys(body || {}),
             contentType,
             bodySample: JSON.stringify(body).substring(0, 500),
-            publicSignalsLength: finalPubSignals?.length,
+            publicSignalsLength: Array.isArray(finalPubSignals) ? finalPubSignals.length : undefined,
             publicSignalsSample: finalPubSignals ? JSON.stringify(finalPubSignals.slice(0, 3)) : null
           }
         },
