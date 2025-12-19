@@ -19,9 +19,10 @@ async function getVerifier() {
       process.env.SELF_DEV_MODE === 'true'
     );
     const scopeEnv = process.env.SELF_SCOPE_ID || process.env.NEXT_PUBLIC_SELF_SCOPE || "secureflow-identity";
+    const configId = process.env.NEXT_PUBLIC_SELF_CONFIG_ID || "";
     verifier = new SelfBackendVerifier(
       scopeEnv,
-      "",
+      configId,
       mockPassport,
       AllIds,
       new DefaultConfigStore({ minimumAge: 18, excludedCountries: [], ofac: false }),

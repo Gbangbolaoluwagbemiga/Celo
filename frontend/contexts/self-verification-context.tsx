@@ -73,6 +73,7 @@ export function SelfVerificationProvider({ children }: { children: ReactNode }) 
       const devModeAuto = endpointIsPlayground ? false : (typeof autoEndpointType === "string" && autoEndpointType.includes("staging"));
       const scopeEnv = (process.env.NEXT_PUBLIC_SELF_SCOPE as string) || "secureflow-identity";
       const scopeAuto = endpointIsPlayground ? "self-playground" : (scopeEnv && scopeEnv !== "self-playground" ? scopeEnv : "secureflow-identity");
+      const configId = process.env.NEXT_PUBLIC_SELF_CONFIG_ID || "";
 
       // Warning for conflicting configuration
       if (endpointIsPlayground && scopeEnv && scopeEnv !== "self-playground") {
@@ -100,9 +101,10 @@ export function SelfVerificationProvider({ children }: { children: ReactNode }) 
         version: 2,
         chainID: 42220,
         userDefinedData: "secureflow|identity_verification|age>=18",
-        disclosures: disclosuresPayload,
-        attestationId: 1, // Explicitly set for Passport
-      } as any).build();
+          disclosures: disclosuresPayload,
+          attestationId: 1, // Explicitly set for Passport
+          configId: configId,
+        } as any).build();
 
       console.log("[Self] Builder payload:", {
         endpointType: autoEndpointType,
