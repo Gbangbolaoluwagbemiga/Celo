@@ -84,11 +84,9 @@ export function SelfVerificationProvider({ children }: { children: ReactNode }) 
         console.warn("[Self] The provided scope looks like a UUID/Project ID. Self Protocol scopes are typically short strings (e.g., 'secureflow-app'). Ensure you are using the Scope Name, not the Project ID.");
       }
       
-      const disclosuresPayload = {
-        minimumAge: 18,
-        excludedCountries: [],
-        ofac: false,
-      };
+      const disclosuresPayload = [
+        { type: "minimumAge", value: 18 }
+      ] as any;
 
       const app = new SelfAppBuilder({
         appName: "SecureFlow",
@@ -102,7 +100,8 @@ export function SelfVerificationProvider({ children }: { children: ReactNode }) 
         version: 2,
         chainID: 42220,
         userDefinedData: "secureflow|identity_verification|age>=18",
-        disclosures: disclosuresPayload as any,
+        disclosures: disclosuresPayload,
+        attestationId: 1,
       }).build();
 
       console.log("[Self] Builder payload:", {
