@@ -101,7 +101,7 @@ export function SelfVerificationProvider({ children }: { children: ReactNode }) 
         version: 2,
         chainID: 42220,
         userDefinedData: "secureflow|identity_verification|age>=18",
-          disclosures: disclosuresPayload,
+          // disclosures: disclosuresPayload, // Removed: ConfigID handles requirements
           attestationId: 1, // Explicitly set for Passport
           configId: configId,
         } as any).build();
