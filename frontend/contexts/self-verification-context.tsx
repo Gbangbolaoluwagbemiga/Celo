@@ -101,11 +101,10 @@ export function SelfVerificationProvider({ children }: { children: ReactNode }) 
         userIdType: 'hex',
         devMode: devModeAuto,
         version: 2,
-        chainID: 42220,
+        // chainID: 42220, // Removed: ZeroSum doesn't use this, might be causing input mismatch
         userDefinedData: `SecureFlow Verification - ${wallet.address.toLowerCase()}`,
         disclosures: disclosuresPayload,
-        // attestationId: 1, // Removed to let SDK infer from disclosures
-        // configId: configId, // Removed to match ZeroSum's ad-hoc style
+        attestationId: 1, // Explicitly set for Passport to ensure circuit match
       } as any).build();
 
       console.log("[Self] Builder payload:", {
