@@ -129,6 +129,7 @@ interface ISecureFlow {
     event JobCreationPaused();
     event JobCreationUnpaused();
     event UserVerified(address indexed user, uint256 timestamp);
+    event RewardClaimFailed(string reason);
 
     // ===== Core Functions =====
     function createEscrow(
@@ -160,7 +161,12 @@ interface ISecureFlow {
         uint256 milestoneIndex,
         string calldata description
     ) external;
-    function approveMilestone(uint256 escrowId, uint256 milestoneIndex, bytes calldata signature) external;
+    function approveMilestone(
+        uint256 escrowId, 
+        uint256 milestoneIndex, 
+        uint256 validUntilBlock, 
+        bytes calldata signature
+    ) external;
     function rejectMilestone(
         uint256 escrowId,
         uint256 milestoneIndex,
