@@ -40,11 +40,7 @@ export function ApplicationDialog({
   const { isVerified } = useSelfVerification();
 
   const handleSubmit = () => {
-    if (!isVerified) {
-      setShowVerificationDialog(true);
-      return;
-    }
-
+    // Verification is now optional
     if (job && coverLetter.trim() && proposedTimeline.trim()) {
       onApply(job, coverLetter, proposedTimeline);
       setCoverLetter("");
@@ -66,12 +62,12 @@ export function ApplicationDialog({
 
         <div className="space-y-4 py-4">
           {!isVerified && (
-            <Alert className="border-orange-500 bg-orange-50 dark:bg-orange-950">
-              <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-              <AlertDescription className="text-orange-800 dark:text-orange-200">
-                <div className="font-semibold">Identity verification required</div>
+            <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+              <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+              <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                <div className="font-semibold">Identity verification recommended</div>
                 <div className="text-sm mt-1">
-                  You need to verify your identity before applying to jobs. This helps prevent fraud and ensures a trusted platform.
+                  Verifying your identity increases your chances of being hired. You can still apply without it.
                 </div>
                 <Button
                   variant="outline"
@@ -119,7 +115,7 @@ export function ApplicationDialog({
           <Button
             onClick={handleSubmit}
             disabled={
-              applying || !coverLetter.trim() || !proposedTimeline.trim() || !isVerified
+              applying || !coverLetter.trim() || !proposedTimeline.trim()
             }
           >
             {applying ? "Applying..." : "Submit Application"}
@@ -130,7 +126,7 @@ export function ApplicationDialog({
       <SelfVerificationDialog
         open={showVerificationDialog}
         onOpenChange={setShowVerificationDialog}
-        required={true}
+        required={false}
       />
     </Dialog>
   );
