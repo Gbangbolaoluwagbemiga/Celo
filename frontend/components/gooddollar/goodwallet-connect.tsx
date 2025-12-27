@@ -1,13 +1,33 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Wallet, ExternalLink, Zap } from "lucide-react";
 import { useWeb3 } from "@/contexts/web3-context";
 import { GDOLLARBalance } from "./gdollar-balance";
+import { projectId, metadata } from "@/lib/web3/reown-config";
+
+// Import the web component
+import "@goodsdks/ui-components";
 
 export function GoodWalletConnect() {
   const { wallet } = useWeb3();
+  const [isComponentReady, setIsComponentReady] = useState(false);
+
+  useEffect(() => {
+    // Inject config when component is defined
+    customElements.whenDefined("claim-button").then(() => {
+      setIsComponentReady(true);
+      const claimBtns = document.querySelectorAll("claim-button");
+      claimBtns.forEach(btn => {
+         (btn as any).appkitConfig = {
+           projectId,
+           metadata
+         };
+      });
+    });
+  }, []);
 
   return (
     <Card className="border-2 border-primary/20">
@@ -39,6 +59,12 @@ export function GoodWalletConnect() {
             <GDOLLARBalance compact />
           </div>
         )}
+
+        {/* GoodDollar Claim Button Integration */}
+        <div className="my-4 flex justify-center bg-gray-50 p-4 rounded-lg border border-gray-100">
+           {/* @ts-ignore */}
+           <claim-button environment="production" />
+        </div>
 
         <div className="flex gap-2 pt-2">
           <Button
