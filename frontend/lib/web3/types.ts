@@ -60,4 +60,6 @@ export interface Application {
   proposedTimeline: number;
   appliedAt: number;
   status: "pending" | "accepted" | "rejected";
+  averageRating?: number;
+  totalRatings?: number;
 }

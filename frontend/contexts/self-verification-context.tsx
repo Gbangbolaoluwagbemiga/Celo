@@ -13,7 +13,7 @@ interface SelfVerificationContextType {
   isVerifying: boolean;
   verificationTimestamp: number | null;
   verifyIdentity: () => Promise<void>;
-  checkVerificationStatus: () => Promise<void>;
+  checkVerificationStatus: (skipStateUpdate?: boolean) => Promise<boolean>;
   SelfVerificationComponent: React.ComponentType;
 }
 
@@ -139,7 +139,8 @@ export function SelfVerificationProvider({ children }: { children: ReactNode }) 
             setIsVerified(cachedVerified);
             setVerificationTimestamp(cachedTimestamp);
           }
-          return cachedVerified;
+          // Don't return early - verify with contract to ensure cache isn't stale
+          // return cachedVerified; 
         } catch (e) {
           // Invalid cache, continue to contract check
         }

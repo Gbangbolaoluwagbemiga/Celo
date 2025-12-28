@@ -40,7 +40,12 @@ export function ApplicationDialog({
   const { isVerified } = useSelfVerification();
 
   const handleSubmit = () => {
-    // Verification is now optional
+    // Verification is required
+    if (!isVerified) {
+      setShowVerificationDialog(true);
+      return;
+    }
+
     if (job && coverLetter.trim() && proposedTimeline.trim()) {
       onApply(job, coverLetter, proposedTimeline);
       setCoverLetter("");
@@ -62,17 +67,17 @@ export function ApplicationDialog({
 
         <div className="space-y-4 py-4">
           {!isVerified && (
-            <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
-              <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-              <AlertDescription className="text-yellow-800 dark:text-yellow-200">
-                <div className="font-semibold">Identity verification recommended</div>
+            <Alert variant="destructive" className="border-red-500 bg-red-50 dark:bg-red-950">
+              <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+              <AlertDescription className="text-red-800 dark:text-red-200">
+                <div className="font-semibold">Identity verification required</div>
                 <div className="text-sm mt-1">
-                  Verifying your identity increases your chances of being hired. You can still apply without it.
+                  You must verify your identity to apply for jobs on SecureFlow.
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="mt-2"
+                  className="mt-2 border-red-200 hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900"
                   onClick={() => setShowVerificationDialog(true)}
                 >
                   <Shield className="w-3 h-3 mr-2" />
@@ -91,6 +96,7 @@ export function ApplicationDialog({
               onChange={(e) => setCoverLetter(e.target.value)}
               className="min-h-[120px]"
               required
+              disabled={!isVerified}
             />
           </div>
 
@@ -104,6 +110,7 @@ export function ApplicationDialog({
               onChange={(e) => setProposedTimeline(e.target.value)}
               min="1"
               required
+              disabled={!isVerified}
             />
           </div>
         </div>
@@ -115,7 +122,7 @@ export function ApplicationDialog({
           <Button
             onClick={handleSubmit}
             disabled={
-              applying || !coverLetter.trim() || !proposedTimeline.trim()
+              applying || !isVerified || !coverLetter.trim() || !proposedTimeline.trim()
             }
           >
             {applying ? "Applying..." : "Submit Application"}
@@ -126,7 +133,7 @@ export function ApplicationDialog({
       <SelfVerificationDialog
         open={showVerificationDialog}
         onOpenChange={setShowVerificationDialog}
-        required={false}
+        required={true}
       />
     </Dialog>
   );
