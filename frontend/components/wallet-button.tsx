@@ -2,13 +2,14 @@
 
 import { Button } from "@/components/ui/button";
 import { useWeb3 } from "@/contexts/web3-context";
-import { useAppKit } from "@reown/appkit/react";
+import { useAppKit, useAppKitAccount } from "@reown/appkit/react";
 import { useState, useEffect } from "react";
 import { NetworkSetupDialog } from "@/components/network-setup-dialog";
 
 export function WalletButton() {
   const { wallet, switchToCelo } = useWeb3();
-  const { open, isConnected: appKitConnected } = useAppKit();
+  const { open } = useAppKit();
+  const { isConnected: appKitConnected } = useAppKitAccount();
   const [networkIconError, setNetworkIconError] = useState(false);
   const [walletIconError, setWalletIconError] = useState(false);
   const [isOpening, setIsOpening] = useState(false);

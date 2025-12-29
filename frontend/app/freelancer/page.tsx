@@ -284,6 +284,7 @@ export default function FreelancerPage() {
                     let status = 0;
                     let submittedAt = undefined;
                     let approvedAt = undefined;
+                    let disputedBy: string | undefined = undefined;
                     let disputeReason = "";
                     let rejectionReason = "";
 
@@ -345,6 +346,13 @@ export default function FreelancerPage() {
                               approvedAt = Number(m.approvedAt) * 1000;
                             } else if (m[4] !== undefined && Number(m[4]) > 0) {
                               approvedAt = Number(m[4]) * 1000;
+                            }
+
+                            // Parse disputedBy (index 6 in contract)
+                            if (m.disputedBy !== undefined) {
+                              disputedBy = String(m.disputedBy);
+                            } else if (m[6] !== undefined) {
+                              disputedBy = String(m[6]);
                             }
 
                             // Parse dispute reason (index 7 in contract)
@@ -836,13 +844,15 @@ export default function FreelancerPage() {
 
       while (attempts < maxAttempts) {
         try {
-          receipt = await window.ethereum.request({
-            method: "eth_getTransactionReceipt",
-            params: [txHash],
-          });
+          if (typeof window !== "undefined" && window.ethereum) {
+            receipt = await (window.ethereum as any).request({
+              method: "eth_getTransactionReceipt",
+              params: [txHash],
+            });
 
-          if (receipt) {
-            break;
+            if (receipt) {
+              break;
+            }
           }
         } catch (error) {}
 
@@ -952,13 +962,15 @@ export default function FreelancerPage() {
 
       while (attempts < maxAttempts) {
         try {
-          receipt = await window.ethereum.request({
-            method: "eth_getTransactionReceipt",
-            params: [txHash],
-          });
+          if (typeof window !== "undefined" && window.ethereum) {
+            receipt = await (window.ethereum as any).request({
+              method: "eth_getTransactionReceipt",
+              params: [txHash],
+            });
 
-          if (receipt) {
-            break;
+            if (receipt) {
+              break;
+            }
           }
         } catch (error) {}
 

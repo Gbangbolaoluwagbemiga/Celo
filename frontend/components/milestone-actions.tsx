@@ -92,15 +92,19 @@ export function MilestoneActions({
 
     while (attempts < maxAttempts) {
       try {
-        const receipt = await window.ethereum.request({
-          method: "eth_getTransactionReceipt",
-          params: [txHash],
-        });
+        if (typeof window !== "undefined" && window.ethereum) {
+          const receipt = await (window.ethereum as any).request({
+            method: "eth_getTransactionReceipt",
+            params: [txHash],
+          });
 
-        if (receipt) {
-          return receipt;
+          if (receipt) {
+            return receipt;
+          }
         }
-      } catch (error) {}
+      } catch (error) {
+        // Ignore errors during polling
+      }
 
       await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds
       attempts++;
@@ -299,6 +303,8 @@ export function MilestoneActions({
               const data = iface.encodeFunctionData("approveMilestone", [
                 escrowId,
                 milestoneIndex,
+                0, // validUntilBlock (dummy)
+                "0x", // signature (dummy)
               ]);
               txHash = await executeTransaction(
                 CONTRACTS.SECUREFLOW_ESCROW,
@@ -313,12 +319,13 @@ export function MilestoneActions({
               // Use regular transaction
               // Try to estimate gas first to catch potential issues
               try {
-                const gasEstimate = await contract.estimateGas(
-                  "approveMilestone",
-                  escrowId,
-                  milestoneIndex,
-                );
-              } catch (gasError) {
+                  const gasEstimate = await contract.estimateGas.approveMilestone(
+                    escrowId,
+                    milestoneIndex,
+                    0, // validUntilBlock
+                    "0x" // signature
+                  );
+                } catch (gasError) {
                 // Gas estimation failed, but continue with transaction
                 console.log(
                   "Gas estimation failed, proceeding with transaction",
@@ -336,6 +343,8 @@ export function MilestoneActions({
                     "no-value",
                     escrowId,
                     milestoneIndex,
+                    0, // validUntilBlock
+                    "0x" // signature
                   );
                   break; // Success, exit retry loop
                 } catch (sendError: any) {
