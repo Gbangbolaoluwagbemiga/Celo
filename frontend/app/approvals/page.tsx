@@ -258,6 +258,8 @@ export default function ApprovalsPage() {
                           // Fetch freelancer rating
                           let averageRating = 0;
                           let totalRatings = 0;
+                          let isVerified = false;
+
                           try {
                             const ratingData = await contract.call(
                               "getFreelancerRating",
@@ -281,6 +283,17 @@ export default function ApprovalsPage() {
                             );
                           }
 
+                          // Fetch verification status
+                          try {
+                            const verifiedStatus = await contract.call(
+                              "selfVerifiedUsers",
+                              freelancerAddress
+                            );
+                            isVerified = Boolean(verifiedStatus);
+                          } catch (verifyError) {
+                            console.log(`Verification check failed for ${freelancerAddress}`);
+                          }
+
                           const application: Application = {
                             freelancerAddress,
                             coverLetter,
@@ -289,6 +302,7 @@ export default function ApprovalsPage() {
                             status: "pending" as const,
                             averageRating,
                             totalRatings,
+                            isVerified,
                           };
 
                           applications.push(application);

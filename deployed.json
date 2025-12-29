@@ -3,7 +3,7 @@
   "chainId": "42220",
   "deployer": "0x3Be7fbBDbC73Fc4731D60EF09c4BA1A94DC58E41",
   "contracts": {
-    "SecureFlow": "0x067FDA1ED957BB352679cbc840Ce6329E470fd07",
+    "SecureFlow": "0x407590806233B64D5176746C8b2bE30fB3748aB9",
     "Token": "0x765DE816845861e75A25fCA122bb6898B8B1282a"
   },
   "features": [
@@ -17,7 +17,7 @@
     "🛡️ ANTI-GAMING - Minimum value thresholds",
     "📈 SCALABLE - Gas optimized modular design"
   ],
-  "deploymentTime": "2025-12-09T09:50:20.247Z",
+  "deploymentTime": "2025-12-28T20:52:50.227Z",
   "abi": [
     "constructor(address,address,uint256)",
     "event ApplicationSubmitted(uint256 indexed,address indexed,string,uint256)",
@@ -47,6 +47,7 @@
     "event Paused(address)",
     "event PlatformFeeUpdated(uint256)",
     "event ReputationUpdated(address indexed,uint256,string)",
+    "event RewardClaimFailed(string)",
     "event TokenBlacklisted(address indexed)",
     "event TokenWhitelisted(address indexed)",
     "event Unpaused(address)",
@@ -70,7 +71,7 @@
     "function REPUTATION_PER_MILESTONE() view returns (uint256)",
     "function acceptFreelancer(uint256,address)",
     "function applyToJob(uint256,string,uint256)",
-    "function approveMilestone(uint256,uint256)",
+    "function approveMilestone(uint256,uint256,uint256,bytes)",
     "function authorizeArbiter(address)",
     "function authorizedArbiters(address) view returns (bool)",
     "function blacklistToken(address)",
@@ -80,6 +81,7 @@
     "function disputeMilestone(uint256,uint256,string)",
     "function emergencyRefundAfterDeadline(uint256)",
     "function emergencyWithdraw(address,uint256)",
+    "function engagementRewards() view returns (address)",
     "function escrowRatings(uint256) view returns (address,address,uint256,uint256,uint256,bool)",
     "function escrowedAmount(address) view returns (uint256)",
     "function escrows(uint256) view returns (address,address,uint8,address,uint256,uint256,uint256,uint256,uint8,bool,uint256,uint256,bool,string,string)",
@@ -120,6 +122,7 @@
     "function revokeArbiter(address)",
     "function revokeUserVerification(address)",
     "function selfVerifiedUsers(address) view returns (bool)",
+    "function setEngagementRewards(address)",
     "function setFeeCollector(address)",
     "function setPlatformFeeBP(uint256)",
     "function startWork(uint256)",
