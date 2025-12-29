@@ -35,7 +35,7 @@ module.exports = {
       url: "http://127.0.0.1:8545",
     },
     celo: {
-      url: process.env.CELO_RPC_URL || "https://forno.celo.org",
+      url: process.env.CELO_RPC_URL || "https://celo.publicnode.com",
       accounts:
         process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
       chainId: 42220, // Celo mainnet chain ID
@@ -85,7 +85,7 @@ module.exports = {
     artifacts: "./artifacts",
   },
   etherscan: {
-    apiKey: process.env.CELOSCAN_API_KEY || process.env.BASESCAN_API_KEY || "",
+    apiKey: process.env.CELOSCAN_API_KEY || "",
     customChains: [
       {
         network: "celo",

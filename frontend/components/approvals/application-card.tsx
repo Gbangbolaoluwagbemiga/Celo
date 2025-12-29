@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { User, Calendar, CheckCircle, Star, Award } from "lucide-react";
+import { User, Calendar, CheckCircle, Star, Award, Shield, ShieldAlert } from "lucide-react";
 
 interface Application {
   freelancerAddress: string;
@@ -14,6 +14,7 @@ interface Application {
   status: "pending" | "accepted" | "rejected";
   averageRating?: number; // Average rating * 100
   totalRatings?: number;
+  isVerified?: boolean;
 }
 
 interface ApplicationCardProps {
@@ -39,6 +40,17 @@ export function ApplicationCard({
               {application.freelancerAddress.slice(0, 6)}...
               {application.freelancerAddress.slice(-4)}
             </span>
+
+            {/* Verification Status */}
+            {application.isVerified && (
+              <Badge
+                variant="secondary"
+                className="text-xs bg-green-100 text-green-800 border-green-300 gap-1"
+              >
+                <Shield className="h-3 w-3 fill-green-500 text-green-500" />
+                Verified
+              </Badge>
+            )}
 
             {/* Display rating if available */}
             {application.totalRatings && application.totalRatings > 0 ? (
