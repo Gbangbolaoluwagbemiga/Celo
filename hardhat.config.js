@@ -35,7 +35,7 @@ module.exports = {
       url: "http://127.0.0.1:8545",
     },
     celo: {
-      url: process.env.CELO_RPC_URL || "https://celo.publicnode.com",
+      url: process.env.CELO_RPC_URL || "https://celo-mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161",
       accounts:
         process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
       chainId: 42220, // Celo mainnet chain ID
@@ -120,5 +120,8 @@ module.exports = {
         },
       },
     ],
+  },
+  sourcify: {
+    enabled: true,
   },
 };

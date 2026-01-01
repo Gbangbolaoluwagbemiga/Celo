@@ -3,7 +3,7 @@
   "chainId": "42220",
   "deployer": "0x3Be7fbBDbC73Fc4731D60EF09c4BA1A94DC58E41",
   "contracts": {
-    "SecureFlow": "0x7aa4dc0Fd0919029C9f1B1762f0366549bCeC102",
+    "SecureFlow": "0x87b1D53953c7CBc4ec590C85A5c363a60d2eA92C",
     "Token": "0x765DE816845861e75A25fCA122bb6898B8B1282a"
   },
   "features": [
@@ -17,7 +17,7 @@
     "🛡️ ANTI-GAMING - Minimum value thresholds",
     "📈 SCALABLE - Gas optimized modular design"
   ],
-  "deploymentTime": "2025-12-29T20:39:14.402Z",
+  "deploymentTime": "2025-12-29T21:07:53.961Z",
   "abi": [
     "constructor(address,address,uint256)",
     "event ApplicationSubmitted(uint256 indexed,address indexed,string,uint256)",
